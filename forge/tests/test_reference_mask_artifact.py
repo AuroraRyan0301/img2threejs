@@ -23,17 +23,16 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "stage4_review"))
 
+import diagnose_render  # noqa: E402
 import divine_eye  # noqa: E402
-from divine_eye import (  # noqa: E402
+from divine_eye import _foreground_hsv_stats, evaluate  # noqa: E402
+from diagnose_render import condition_mask, load_mask, run_tier1, silhouette_iou  # noqa: E402
+from reference_mask_artifact import (  # noqa: E402
     MASK_SOURCE_ARTIFACT,
     MASK_SOURCE_HEURISTIC,
     ReferenceMaskError,
-    _foreground_hsv_stats,
-    _grid_from_full_mask,
-    evaluate,
     load_reference_mask_artifact,
 )
-from diagnose_render import load_mask, silhouette_iou  # noqa: E402
 
 PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
 
@@ -137,7 +136,7 @@ class ReferenceMaskArtifactTest(unittest.TestCase):
     def artifact_iou(self) -> float:
         """IoU the artifact mask implies, computed independently of divine_eye.evaluate."""
         full = [in_rect(x, y, ARTIFACT_REGION) for y in range(SIZE) for x in range(SIZE)]
-        grid, _warnings = _grid_from_full_mask(full, SIZE, SIZE)
+        grid, _warnings = condition_mask(full, SIZE, SIZE)
         return silhouette_iou(grid, load_mask(self.render)[0])
 
     def heuristic_iou(self) -> float:
@@ -204,6 +203,44 @@ class ReferenceMaskArtifactTest(unittest.TestCase):
         mask_path = self.write_artifact()
         result = evaluate(self.reference, self.render)
         self.assertEqual(result["referenceMaskArtifact"], str(mask_path.resolve()))
+
+    # --- the official tier-1 verdict (diagnose_render) ------------------------------------
+    def run_tier1_cli(self) -> tuple[int, str, str]:
+        out, err = io.StringIO(), io.StringIO()
+        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+            code = diagnose_render.main(["--reference", str(self.reference),
+                                         "--render", str(self.render), "--json"])
+        return code, out.getvalue(), err.getvalue()
+
+    def test_tier1_verdict_scores_with_the_artifact(self):
+        self.write_artifact()
+        verdict = run_tier1(self.reference, self.render)
+        self.assertEqual(verdict["referenceMaskSource"], MASK_SOURCE_ARTIFACT)
+        self.assertEqual(verdict["checks"]["silhouetteIoU"], round(self.artifact_iou(), 4))
+
+    def test_tier1_verdict_and_divine_eye_measure_the_same_silhouette(self):
+        # The gap this closes: two scorers, two rulers, same bytes.
+        self.write_artifact()
+        verdict = run_tier1(self.reference, self.render)
+        eye = evaluate(self.reference, self.render)
+        self.assertEqual(verdict["checks"]["silhouetteIoU"], eye["signals"]["silhouetteIoU"])
+        self.assertEqual(verdict["referenceMaskSource"], eye["referenceMaskSource"])
+
+    def test_tier1_verdict_without_an_artifact_is_unchanged(self):
+        verdict = run_tier1(self.reference, self.render)
+        self.assertEqual(verdict["referenceMaskSource"], MASK_SOURCE_HEURISTIC)
+        self.assertEqual(verdict["checks"]["silhouetteIoU"], round(self.heuristic_iou(), 4))
+        self.assertEqual(verdict["maskWarnings"],
+                         [f"reference: {w}" for w in load_mask(self.reference)[1]]
+                         + [f"render: {w}" for w in load_mask(self.render)[1]])
+
+    def test_tier1_cli_fails_loud_on_an_unauthenticated_artifact(self):
+        self.write_artifact(source_sha="0" * 64)
+        code, out, err = self.run_tier1_cli()
+        self.assertEqual(code, 1)
+        self.assertIn("cut from a different image", err)
+        self.assertNotIn("Traceback", err)
+        self.assertNotIn('"passed"', out)
 
     # --- fail loud -------------------------------------------------------------------------
     def assert_cli_fails_naming(self, *fragments: str) -> str:

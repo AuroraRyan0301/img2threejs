@@ -33,6 +33,12 @@ from extract_part_color_recipe import lab_distance, lab_kmeans_palette, srgb_to_
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "stage3_build"))
 from orchestrate_passes import DEFAULT_PASS_ORDER, load_spec  # noqa: E402
 from geometry_integrity import measure_geometry_integrity  # noqa: E402
+from reference_mask_artifact import (  # noqa: E402
+    MASK_SOURCE_ARTIFACT,
+    MASK_SOURCE_HEURISTIC,
+    ReferenceMaskArtifact,
+    load_reference_mask_artifact,
+)
 from status_banner import emit_status, load_optional_spec  # noqa: E402
 
 
@@ -109,10 +115,17 @@ def largest_component(mask: list[bool], size: int) -> tuple[list[bool], float]:
     return filtered, discarded
 
 
-def load_mask(png_path: Path, size: int = MASK_GRID_SIZE) -> tuple[list[bool], list[str]]:
-    """Return the resized foreground mask and extraction warnings."""
-    width, height, pixels, _warnings = load_image(png_path)
-    mask, _diag, mask_warnings = build_foreground_mask(width, height, pixels)
+def condition_mask(
+    mask: list[bool],
+    width: int,
+    height: int,
+    size: int = MASK_GRID_SIZE,
+) -> tuple[list[bool], list[str]]:
+    """Reduce a full-resolution foreground mask to the scoring grid, keeping the largest blob.
+
+    Every mask that reaches a silhouette signal passes through here, whatever produced it, so a
+    heuristic mask and an adapter mask are always compared on identically conditioned grids.
+    """
     resized: list[bool] = []
     for y in range(size):
         sy = min(height - 1, int(y * height / size))
@@ -120,13 +133,42 @@ def load_mask(png_path: Path, size: int = MASK_GRID_SIZE) -> tuple[list[bool], l
             sx = min(width - 1, int(x * width / size))
             resized.append(mask[sy * width + sx])
     filtered, discarded = largest_component(resized, size)
+    warnings: list[str] = []
     if discarded > 0.02:
-        mask_warnings = list(mask_warnings) + [
+        warnings.append(
             f"{discarded:.1%} of foreground cells lie outside the largest connected blob and were "
             "excluded from the bounding box; if the subject really has separated parts in this "
             "projection, they are not being measured"
-        ]
-    return filtered, mask_warnings
+        )
+    return filtered, warnings
+
+
+def load_mask(png_path: Path, size: int = MASK_GRID_SIZE) -> tuple[list[bool], list[str]]:
+    """Return the resized heuristic foreground mask and extraction warnings."""
+    width, height, pixels, _warnings = load_image(png_path)
+    mask, _diag, mask_warnings = build_foreground_mask(width, height, pixels)
+    filtered, grid_warnings = condition_mask(mask, width, height, size)
+    return filtered, list(mask_warnings) + grid_warnings
+
+
+def load_reference_mask(
+    reference_path: Path,
+    size: int = MASK_GRID_SIZE,
+) -> tuple[list[bool], list[str], str, ReferenceMaskArtifact | None]:
+    """Reference-side mask, named: (mask, warnings, source, artifact-or-None).
+
+    The workspace's published segmentation artifact wins when it authenticates; otherwise the
+    corner heuristic, unchanged. An artifact that is present but cannot be authenticated raises
+    (see reference_mask_artifact) rather than degrading to the heuristic behind the score. The
+    RENDER side never comes through here: a render's backdrop is uniform, which is exactly the
+    case the heuristic is right about.
+    """
+    artifact = load_reference_mask_artifact(reference_path)
+    if artifact is None:
+        mask, warnings = load_mask(reference_path, size)
+        return mask, warnings, MASK_SOURCE_HEURISTIC, None
+    mask, grid_warnings = condition_mask(artifact.full, artifact.width, artifact.height, size)
+    return mask, list(artifact.warnings) + grid_warnings, MASK_SOURCE_ARTIFACT, artifact
 
 
 def silhouette_iou(reference_mask: list[bool], render_mask: list[bool]) -> float:
@@ -231,7 +273,9 @@ def run_tier1(
     spec_path: Path | None = None,
     pass_id: str | None = None,
 ) -> dict[str, Any]:
-    reference_mask, reference_mask_warnings = load_mask(reference_path)
+    reference_mask, reference_mask_warnings, reference_mask_source, _artifact = (
+        load_reference_mask(reference_path)
+    )
     render_mask, render_mask_warnings = load_mask(render_path)
     mask_warnings = (
         [f"reference: {w}" for w in reference_mask_warnings]
@@ -294,6 +338,9 @@ def run_tier1(
         "checks": checks,
         "failures": failures,
         "maskWarnings": mask_warnings,
+        # Which ruler cut the reference silhouette. Without it a recorded verdict cannot be
+        # compared with any other verdict on the same bytes.
+        "referenceMaskSource": reference_mask_source,
         "renderHash": render_hash(render_path),
         "passId": pass_id,
     }
