@@ -30,16 +30,19 @@ Deferred to later Phase-3 increments (documented, not silently missing):
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import math
 import sys
 from pathlib import Path
-from typing import Any
+from typing import Any, NamedTuple
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from diagnose_render import (  # noqa: E402
+    MASK_GRID_SIZE,
     bbox_of,
     bilateral_symmetry_error,
+    largest_component,
     load_mask,
     mask_is_inverted,
     proportion_delta,
@@ -77,12 +80,208 @@ HUE_ZONE_DELTA_E = 2.3   # per-band CIEDE2000 "same hue zone" tolerance (Context
 HUE_ZONE_BANDS = 8       # bands sampled along the axis for hue_zone_parity
 COLOR_SAMPLE = 160       # coarse per-axis subsample cap for colour helpers (perf on full-res refs)
 
+# --- adapter-provided reference mask -------------------------------------------------------
+# The heuristic (build_foreground_mask) models the background from the image corners. That is
+# sound for renders (uniform backdrop) and for product-style photos, but it cannot segment a
+# photo whose backdrop is itself structured — banded studio lighting deviates from any corner
+# model by more than any threshold that still admits the subject. For those references the
+# pipeline's own answer is the segmentation adapter (`run_vision_adapter.py segment`, SAM2),
+# which drops a mask + provenance sidecar into the workspace. When that artifact is present it
+# is the REFERENCE-side ruler here; the RENDER side always keeps the heuristic.
+WORKSPACE_STATE_DIR = ".img2threejs"
+REFERENCE_MASK_NAME = "reference-mask.png"
+REFERENCE_MASK_SIDECAR_NAMES = (
+    "reference-mask.json",           # canonical: written with `segment --json-out`
+    "reference-mask.png.json",       # the adapter's default sidecar name for that output
+)
+REFERENCE_MASK_KIND = "segmentation-mask"
+MASK_SOURCE_ARTIFACT = f"artifact:{REFERENCE_MASK_KIND}"
+MASK_SOURCE_HEURISTIC = "heuristic"
 
-def _banded_median_lab(png_path: Path, axis: str, bands: int) -> list[tuple[float, float, float] | None]:
+
+class ReferenceMaskError(RuntimeError):
+    """A reference-mask artifact exists but cannot be trusted to score this reference.
+
+    Raised instead of falling back to the heuristic: a silent fallback would publish a fidelity
+    number whose ruler nobody can name afterwards. Present-but-invalid is always a hard stop.
+    """
+
+
+class ReferenceMask(NamedTuple):
+    """A validated artifact mask: full-resolution truth plus the scoring grid derived from it."""
+
+    path: Path
+    sidecar: Path
+    full: list[bool]          # width*height, foreground=True — for the colour helpers
+    grid: list[bool]          # MASK_GRID_SIZE² — for IoU/bbox/symmetry, same grid as load_mask
+    warnings: list[str]
+
+
+def _sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for block in iter(lambda: handle.read(1 << 20), b""):
+            digest.update(block)
+    return digest.hexdigest()
+
+
+def find_reference_mask_artifact(reference_png: Path) -> tuple[Path, Path | None] | None:
+    """Locate `<workspace>/.img2threejs/reference-mask.png` for this reference, or None.
+
+    The workspace root is the NEAREST ancestor of the reference image that owns a state
+    directory — the scoring path is handed image paths, never a workspace, and every sanctioned
+    run keeps its reference inside the workspace it is scoring. The search stops at that first
+    state directory so a stale mask in some outer directory can never be adopted for an inner
+    workspace. No state directory above the reference ⇒ no artifact ⇒ heuristic, as before.
+    """
+    reference_png = reference_png.resolve()
+    for candidate in (reference_png.parent, *reference_png.parent.parents):
+        state_dir = candidate / WORKSPACE_STATE_DIR
+        if not state_dir.is_dir():
+            continue
+        mask_path = state_dir / REFERENCE_MASK_NAME
+        if not mask_path.exists():
+            return None
+        sidecar = next((state_dir / name for name in REFERENCE_MASK_SIDECAR_NAMES
+                        if (state_dir / name).is_file()), None)
+        return mask_path, sidecar
+    return None
+
+
+def _read_sidecar(mask_path: Path, sidecar: Path, reference_png: Path) -> dict[str, Any]:
+    """Parse and authenticate the provenance envelope the segmentation adapter emits."""
+    try:
+        envelope = json.loads(sidecar.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as exc:
+        raise ReferenceMaskError(f"reference mask sidecar {sidecar} is unreadable: {exc}") from exc
+    if not isinstance(envelope, dict):
+        raise ReferenceMaskError(f"reference mask sidecar {sidecar} is not a JSON object")
+    kind = envelope.get("kind")
+    if kind != REFERENCE_MASK_KIND:
+        raise ReferenceMaskError(
+            f"reference mask sidecar {sidecar} declares kind {kind!r}, not {REFERENCE_MASK_KIND!r}"
+        )
+    source_sha = envelope.get("sourceSha256")
+    if not isinstance(source_sha, str) or not source_sha:
+        raise ReferenceMaskError(
+            f"reference mask sidecar {sidecar} carries no sourceSha256; nothing proves the mask "
+            "was cut from the reference being scored"
+        )
+    actual_sha = _sha256(reference_png)
+    if source_sha.lower() != actual_sha.lower():
+        raise ReferenceMaskError(
+            f"reference mask {mask_path} was cut from a different image: sidecar sourceSha256 "
+            f"{source_sha[:12]}… (sourceImage {envelope.get('sourceImage')}) but "
+            f"{reference_png} hashes to {actual_sha[:12]}…"
+        )
+    output_sha = envelope.get("outputSha256")
+    if isinstance(output_sha, str) and output_sha:
+        actual_mask_sha = _sha256(mask_path)
+        if output_sha.lower() != actual_mask_sha.lower():
+            raise ReferenceMaskError(
+                f"reference mask {mask_path} changed after its sidecar was written: sidecar "
+                f"outputSha256 {output_sha[:12]}… but the file hashes to {actual_mask_sha[:12]}…"
+            )
+    return envelope
+
+
+def _artifact_foreground(pixels: list[tuple[int, int, int, int]]) -> list[bool]:
+    """Foreground rule for a mask image: alpha when the mask carries transparency, else luma.
+
+    A mask painted as shape-on-transparent and a mask painted as white-on-black are both
+    idiomatic; reading luma on the first would call the whole frame foreground, so transparency
+    wins whenever the image actually uses it.
+    """
+    has_alpha = any(alpha < 255 for _r, _g, _b, alpha in pixels)
+    if has_alpha:
+        return [alpha > 0 for _r, _g, _b, alpha in pixels]
+    return [r > 0 or g > 0 or b > 0 for r, g, b, _a in pixels]
+
+
+def _grid_from_full_mask(
+    mask: list[bool],
+    width: int,
+    height: int,
+    size: int = MASK_GRID_SIZE,
+) -> tuple[list[bool], list[str]]:
+    """Downsample + largest-blob filter, mirroring diagnose_render.load_mask.
+
+    The artifact mask must reach the signals through exactly the post-processing the render-side
+    heuristic mask goes through, or IoU would compare two differently-conditioned silhouettes.
+    """
+    resized: list[bool] = []
+    for y in range(size):
+        sy = min(height - 1, int(y * height / size))
+        for x in range(size):
+            sx = min(width - 1, int(x * width / size))
+            resized.append(mask[sy * width + sx])
+    filtered, discarded = largest_component(resized, size)
+    warnings: list[str] = []
+    if discarded > 0.02:
+        warnings.append(
+            f"{discarded:.1%} of foreground cells lie outside the largest connected blob and were "
+            "excluded from the bounding box; if the subject really has separated parts in this "
+            "projection, they are not being measured"
+        )
+    return filtered, warnings
+
+
+def load_reference_mask_artifact(reference_png: Path) -> ReferenceMask | None:
+    """Return the validated adapter mask for this reference, or None when none is published."""
+    found = find_reference_mask_artifact(reference_png)
+    if found is None:
+        return None
+    mask_path, sidecar = found
+    if sidecar is None:
+        raise ReferenceMaskError(
+            f"reference mask {mask_path} has no provenance sidecar; expected one of "
+            f"{', '.join(REFERENCE_MASK_SIDECAR_NAMES)} beside it — an unprovenanced mask cannot "
+            "be tied to the reference it claims to segment"
+        )
+    envelope = _read_sidecar(mask_path, sidecar, reference_png)
+    ref_width, ref_height, _ref_pixels, _ref_warn = load_image(reference_png)
+    try:
+        width, height, pixels, warnings = load_image(mask_path)
+    except Exception as exc:  # noqa: BLE001 — any decode failure is one fail-loud condition
+        raise ReferenceMaskError(f"reference mask {mask_path} could not be decoded: {exc}") from exc
+    if (width, height) != (ref_width, ref_height):
+        raise ReferenceMaskError(
+            f"reference mask {mask_path} is {width}x{height} but the reference "
+            f"{reference_png} is {ref_width}x{ref_height}; a resampled mask would move the "
+            "silhouette it is supposed to measure"
+        )
+    declared = envelope.get("imageSize")
+    if isinstance(declared, list) and len(declared) == 2 and list(declared) != [ref_width, ref_height]:
+        raise ReferenceMaskError(
+            f"reference mask sidecar {sidecar} declares imageSize {declared} but the reference "
+            f"{reference_png} is {ref_width}x{ref_height}"
+        )
+    full = _artifact_foreground(pixels)
+    if not any(full):
+        raise ReferenceMaskError(
+            f"reference mask {mask_path} marks no foreground pixels; it cannot measure a silhouette"
+        )
+    grid, grid_warnings = _grid_from_full_mask(full, width, height)
+    return ReferenceMask(
+        path=mask_path,
+        sidecar=sidecar,
+        full=full,
+        grid=grid,
+        warnings=list(warnings) + grid_warnings,
+    )
+
+
+def _banded_median_lab(png_path: Path, axis: str, bands: int,
+                       mask_override: list[bool] | None = None) -> list[tuple[float, float, float] | None]:
     """Median CIELAB per foreground-masked band along the axis (axis 'u'=x, 'v'=y).
-    Colour-aware (not luma) — used only by hue_zone_parity, which is report-only until calibrated."""
+    Colour-aware (not luma) — used only by hue_zone_parity, which is report-only until calibrated.
+    mask_override carries the validated reference-mask artifact so every reference-side mask in
+    this module names the same source; None keeps the heuristic (always the case render-side)."""
     width, height, pixels, _ = load_image(png_path)
-    mask, _meta, _warn = build_foreground_mask(width, height, pixels)
+    if mask_override is not None:
+        mask = mask_override
+    else:
+        mask, _meta, _warn = build_foreground_mask(width, height, pixels)
     span = width if axis == "u" else height
     band = max(1, span // bands)
     # Subsample on a coarse grid (≤ COLOR_SAMPLE px/axis) so full-res references stay O(fast) —
@@ -117,12 +316,15 @@ def _banded_median_lab(png_path: Path, axis: str, bands: int) -> list[tuple[floa
     return out
 
 
-def _foreground_hsv_stats(png_path: Path) -> tuple[float, float]:
+def _foreground_hsv_stats(png_path: Path, mask_override: list[bool] | None = None) -> tuple[float, float]:
     """Saturation-weighted mean (hueDeg, saturation) over the foreground. Colour-aware."""
     import colorsys
     import math as _m
     width, height, pixels, _ = load_image(png_path)
-    mask, _meta, _warn = build_foreground_mask(width, height, pixels)
+    if mask_override is not None:
+        mask = mask_override
+    else:
+        mask, _meta, _warn = build_foreground_mask(width, height, pixels)
     sx = max(1, width // COLOR_SAMPLE)
     sy = max(1, height // COLOR_SAMPLE)
     sc = ss = wsum = sat_sum = 0.0
@@ -145,11 +347,12 @@ def _foreground_hsv_stats(png_path: Path) -> tuple[float, float]:
     return mean_hue, mean_sat
 
 
-def specular_wash(reference_png: Path, render_png: Path) -> dict[str, Any]:
+def specular_wash(reference_png: Path, render_png: Path,
+                  reference_mask: list[bool] | None = None) -> dict[str, Any]:
     """Detect the envMap/metalness 'hue theft': the render desaturates a saturated reference AND
     drifts its hue toward cyan (~180°). Report-only — advisory, never a gate (lighting legitimately
     shifts hue). Returns {satRatio, hueDriftDeg, towardCyan, flagged}. (Context Part 3.2)."""
-    ref_hue, ref_sat = _foreground_hsv_stats(reference_png)
+    ref_hue, ref_sat = _foreground_hsv_stats(reference_png, reference_mask)
     ren_hue, ren_sat = _foreground_hsv_stats(render_png)
     sat_ratio = (ren_sat / ref_sat) if ref_sat > 1e-6 else 1.0
     # circular hue drift toward cyan (180°): did the render move closer to 180 than the reference?
@@ -167,11 +370,12 @@ def specular_wash(reference_png: Path, render_png: Path) -> dict[str, Any]:
 
 
 def hue_zone_parity(reference_png: Path, render_png: Path, axis: str = "u",
-                    bands: int = HUE_ZONE_BANDS) -> float:
+                    bands: int = HUE_ZONE_BANDS,
+                    reference_mask: list[bool] | None = None) -> float:
     """Fraction of along-axis bands whose median colour matches the reference within CIEDE2000
     ≤ HUE_ZONE_DELTA_E. Catches "purple rendered blue" that luma/structure signals miss.
     Report-only (no ensemble weight) until calibrated on the labeled corpus."""
-    ref = _banded_median_lab(reference_png, axis, bands)
+    ref = _banded_median_lab(reference_png, axis, bands, reference_mask)
     ren = _banded_median_lab(render_png, axis, bands)
     matched = 0
     counted = 0
@@ -281,7 +485,18 @@ def tonal_parity(ref: list[float], ren: list[float], bins: int = 16) -> float:
 
 def evaluate(reference_png: Path, render_png: Path) -> dict[str, Any]:
     """Run all deterministic signals and combine into a verdict + routing action."""
-    ref_mask, ref_mask_warnings = load_mask(reference_png)
+    # Reference side: the adapter artifact when the workspace publishes one (validated, or a hard
+    # error — never a quiet fallback), else the corner-model heuristic exactly as before.
+    reference_mask = load_reference_mask_artifact(reference_png)
+    if reference_mask is None:
+        ref_mask, ref_mask_warnings = load_mask(reference_png)
+        ref_mask_source = MASK_SOURCE_HEURISTIC
+    else:
+        ref_mask, ref_mask_warnings = reference_mask.grid, reference_mask.warnings
+        ref_mask_source = MASK_SOURCE_ARTIFACT
+    ref_full_mask = reference_mask.full if reference_mask is not None else None
+    # Render side always stays heuristic: renders have a uniform backdrop (measured noise 0.0),
+    # which is precisely the case the corner model is correct for.
     ren_mask, ren_mask_warnings = load_mask(render_png)
     ref_luma = load_luma(reference_png, LUMA_SIZE)
     ren_luma = load_luma(render_png, LUMA_SIZE)
@@ -324,11 +539,13 @@ def evaluate(reference_png: Path, render_png: Path) -> dict[str, Any]:
     # weighted ensemble until calibrated on the labeled corpus. Catches "purple→blue" that
     # every luma/structure signal above is blind to. Graceful: degrades to None on error.
     try:
-        hue_zone: float | None = hue_zone_parity(reference_png, render_png)
+        hue_zone: float | None = hue_zone_parity(reference_png, render_png,
+                                                 reference_mask=ref_full_mask)
     except Exception:
         hue_zone = None
     try:
-        spec_wash: dict[str, Any] | None = specular_wash(reference_png, render_png)
+        spec_wash: dict[str, Any] | None = specular_wash(reference_png, render_png,
+                                                         reference_mask=ref_full_mask)
     except Exception:
         spec_wash = None
 
@@ -429,6 +646,10 @@ def evaluate(reference_png: Path, render_png: Path) -> dict[str, Any]:
         "weights": {k: w for k, (_s, w) in soft.items()},
         "reference": str(reference_png.resolve()),
         "render": str(render_png.resolve()),
+        # Which ruler produced this score. Without it a fidelity number is ambiguous about the
+        # silhouette it was measured against.
+        "referenceMaskSource": ref_mask_source,
+        "referenceMaskArtifact": str(reference_mask.path) if reference_mask is not None else None,
         "note": "deterministic ensemble; zero VLM/token. hueZoneParity is REPORT-ONLY (colour-aware, "
                 "CIEDE2000) — not yet in the weighted fidelity; promote after corpus calibration. "
                 "VLM layer (§3.4) runs only if this passes.",
@@ -451,6 +672,9 @@ def main(argv: list[str]) -> int:
     else:
         print(f"{result['verdict'].upper()} → {result['action']}  fidelity={result['fidelity']} "
               f"(target {result['fidelityTarget']})")
+        if result["referenceMaskArtifact"]:
+            print(f"  reference mask: {result['referenceMaskSource']} "
+                  f"({result['referenceMaskArtifact']})")
         for f in result["hardGateFailures"]:
             print(f"  HARD: {f}")
     # exit 0 only on a clean pass; non-zero otherwise so a pipeline can gate on it.
