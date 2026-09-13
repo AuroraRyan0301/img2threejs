@@ -1,4 +1,16 @@
-"""Fail-closed routing for the weapon and character authoring tracks."""
+"""Fail-closed routing for the authoring tracks the BASE itself implements.
+
+That is one track now: `weapon-v1.4`. `character-v1.5` left with the humanoid template it selected
+(OpenSpec change `extract-character-sculpt-into-the-plugin`); a character run reaches its content
+through domain resolution and `merge_spec_augmentation`, not through a track name the base holds.
+
+`character` and `hybrid` stay in VALID_KINDS, and the distinction is the point of this module. A
+KIND is what the classifier saw; a TRACK is what this repo can build from it. Dropping `character`
+from the vocabulary would make a correct classification read as `malformed-classification` --
+"part object, part character, I cannot decide" and "a character" would both come back as corrupt
+input. Both still fail closed, but they now fail closed with an accurate reason, which is the whole
+value of a gate that refuses.
+"""
 
 from __future__ import annotations
 
@@ -8,9 +20,9 @@ from typing import Any, Final
 CONFIDENCE_THRESHOLD: Final[float] = 0.82
 TRACK_BY_KIND: Final[dict[str, str]] = {
     "weapon": "weapon-v1.4",
-    "character": "character-v1.5",
 }
 VALID_TRACKS: Final[frozenset[str]] = frozenset(TRACK_BY_KIND.values())
+# What a classifier may report. Deliberately WIDER than TRACK_BY_KIND: see the module docstring.
 VALID_KINDS: Final[frozenset[str]] = frozenset({"weapon", "character", "hybrid", "unknown"})
 VALID_SOURCES: Final[frozenset[str]] = frozenset({"explicit", "classification", "legacy"})
 VALID_STATUSES: Final[frozenset[str]] = frozenset({"resolved", "request-input"})
@@ -27,7 +39,8 @@ def _fallback_classification(reason: str) -> dict[str, Any]:
 
 
 def _explicit_classification(track: str) -> dict[str, Any]:
-    kind = "weapon" if track == "weapon-v1.4" else "character"
+    # Only reachable for a track in VALID_TRACKS, which the caller has already checked.
+    kind = next(k for k, t in TRACK_BY_KIND.items() if t == track)
     return {
         "kind": kind,
         "confidence": 1.0,
@@ -133,6 +146,14 @@ def resolve_pipeline_routing(
     requested_track = explicit_track or TRACK_BY_KIND.get(kind, "weapon-v1.4")
     if kind in {"hybrid", "unknown"}:
         conflicts.append(f"classification kind {kind!r} requires input")
+    elif kind not in TRACK_BY_KIND:
+        # A kind this repo classifies but has no track for. Naming the remedy matters: without it
+        # the record is `request-input` with an EMPTY conflicts list, and the caller's error message
+        # is the literal string "pipeline routing requires input: ".
+        conflicts.append(
+            f"classification kind {kind!r} has no base authoring track; its domain plugin supplies "
+            f"the content through --domain {kind} and a spec-augmentation artifact"
+        )
     elif confidence < CONFIDENCE_THRESHOLD:
         conflicts.append(f"classification confidence {confidence:.2f} is below {CONFIDENCE_THRESHOLD:.2f}")
     elif explicit_track is not None and reliable_kind and TRACK_BY_KIND[kind] != explicit_track:
@@ -158,7 +179,7 @@ def validate_pipeline_routing(routing: Any) -> list[str]:
     if routing.get("version") != 1:
         errors.append("pipelineRouting.version must be 1")
     if routing.get("track") not in VALID_TRACKS:
-        errors.append("pipelineRouting.track must be weapon-v1.4 or character-v1.5")
+        errors.append("pipelineRouting.track must be one of " + ", ".join(sorted(VALID_TRACKS)))
     if routing.get("source") not in VALID_SOURCES:
         errors.append("pipelineRouting.source must be explicit, classification, or legacy")
     if routing.get("status") not in VALID_STATUSES:
