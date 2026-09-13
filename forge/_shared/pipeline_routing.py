@@ -24,7 +24,11 @@ TRACK_BY_KIND: Final[dict[str, str]] = {
 VALID_TRACKS: Final[frozenset[str]] = frozenset(TRACK_BY_KIND.values())
 # What a classifier may report. Deliberately WIDER than TRACK_BY_KIND: see the module docstring.
 VALID_KINDS: Final[frozenset[str]] = frozenset({"weapon", "character", "hybrid", "unknown"})
-VALID_SOURCES: Final[frozenset[str]] = frozenset({"explicit", "classification", "legacy"})
+# `provider` is the source for a kind this repo classifies but has no track for, answered by an
+# installed domain plugin. Its record carries `track: None` -- deliberately, because there IS no
+# base track and inventing a name for one would be the base naming a domain, which is exactly what
+# the registry exists to stop.
+VALID_SOURCES: Final[frozenset[str]] = frozenset({"explicit", "classification", "legacy", "provider"})
 VALID_STATUSES: Final[frozenset[str]] = frozenset({"resolved", "request-input"})
 
 
@@ -103,8 +107,21 @@ def resolve_pipeline_routing(
     explicit_track: str | None = None,
     classification: Any = None,
     legacy_cs2: bool = False,
+    provider_domain: str | None = None,
 ) -> dict[str, Any]:
-    """Resolve one supported track or return request-input without guessing a template."""
+    """Resolve one supported track or return request-input without guessing a template.
+
+    `provider_domain` is the id of a domain plugin that has ALREADY supplied this kind's content
+    (a resolved `--domain` plus the artifact it published). Without it, a confident `character`
+    classification came back `request-input` whatever the caller did, so the conflict's own advice
+    -- "its domain plugin supplies the content through --domain character" -- could be followed
+    exactly and reproduce the message. That is advice that cannot succeed, the failure the
+    withdrawal table in `domains/__init__.py` was written to avoid, repeated one file over.
+
+    Resolving it HERE rather than in the caller keeps `status` and `source` owned by the function
+    that defines them: a caller that patched the record afterwards would be writing a field whose
+    invariants live in this module.
+    """
     if legacy_cs2:
         resolved_classification = {
             "kind": "weapon",
@@ -154,10 +171,36 @@ def resolve_pipeline_routing(
             f"classification kind {kind!r} has no base authoring track; its domain plugin supplies "
             f"the content through --domain {kind} and a spec-augmentation artifact"
         )
-    elif confidence < CONFIDENCE_THRESHOLD:
+    # NOT an `elif` on the track branch above. A low-confidence `character` has TWO problems, and
+    # chaining them reported only the first -- so the record said "its domain plugin supplies the
+    # content", implying the provider was the whole answer, while the real blocker was that nobody
+    # is sure it is a character at all. A provider cannot answer that one.
+    if confidence < CONFIDENCE_THRESHOLD and kind not in {"hybrid", "unknown"}:
         conflicts.append(f"classification confidence {confidence:.2f} is below {CONFIDENCE_THRESHOLD:.2f}")
-    elif explicit_track is not None and reliable_kind and TRACK_BY_KIND[kind] != explicit_track:
+    if explicit_track is not None and reliable_kind and TRACK_BY_KIND[kind] != explicit_track:
         conflicts.append(f"explicit track {explicit_track!r} contradicts reliable classification {kind!r}")
+
+    # The provider answers exactly one conflict: "this kind has no base authoring track". It cannot
+    # clear a malformed classification, a low-confidence one, or a hybrid/unknown that needs a human
+    # -- so the claim has to match the kind, and the kind has to be one the base genuinely lacks.
+    answered_by_provider = (
+        provider_domain is not None
+        and kind == provider_domain
+        and kind not in TRACK_BY_KIND
+        and kind not in {"hybrid", "unknown"}
+        and confidence >= CONFIDENCE_THRESHOLD
+        and not [c for c in conflicts if "has no base authoring track" not in c]
+    )
+    if answered_by_provider:
+        return {
+            "version": 1,
+            "track": None,
+            "source": "provider",
+            "status": "resolved",
+            "classification": normalized,
+            "conflicts": [],
+            "provider": provider_domain,
+        }
 
     status = "resolved" if reliable_kind and not conflicts else "request-input"
     source = "explicit" if explicit_track is not None else "classification"
@@ -178,7 +221,14 @@ def validate_pipeline_routing(routing: Any) -> list[str]:
     errors: list[str] = []
     if routing.get("version") != 1:
         errors.append("pipelineRouting.version must be 1")
-    if routing.get("track") not in VALID_TRACKS:
+    if routing.get("source") == "provider":
+        # A provider-resolved record has no base track by construction. It must say so with None
+        # rather than borrow a track name, and it must name the provider that answered.
+        if routing.get("track") is not None:
+            errors.append("pipelineRouting.track must be null when source is provider")
+        if not isinstance(routing.get("provider"), str) or not routing.get("provider"):
+            errors.append("pipelineRouting.provider must name the domain that resolved it")
+    elif routing.get("track") not in VALID_TRACKS:
         errors.append("pipelineRouting.track must be one of " + ", ".join(sorted(VALID_TRACKS)))
     if routing.get("source") not in VALID_SOURCES:
         errors.append("pipelineRouting.source must be explicit, classification, or legacy")

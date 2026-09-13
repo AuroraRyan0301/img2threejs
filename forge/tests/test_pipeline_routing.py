@@ -56,6 +56,61 @@ class PipelineRoutingTests(unittest.TestCase):
         self.assertTrue(character["conflicts"])
         self.assertIn("--domain character", character["conflicts"][0])
 
+    def test_a_provider_answers_the_one_conflict_it_can_answer(self) -> None:
+        """The conflict says "its domain plugin supplies the content through --domain character".
+
+        Before this, following that advice EXACTLY reproduced the message -- advice that cannot
+        succeed, which is the failure `domains/__init__.py`'s withdrawal table exists to avoid,
+        repeated one file over. A code review reproduced it with the plugin's own artifact.
+        """
+        routing = resolve_pipeline_routing(classification=classification("character"),
+                                           provider_domain="character")
+        self.assertEqual(routing["status"], "resolved")
+        self.assertEqual(routing["source"], "provider")
+        self.assertEqual(routing["provider"], "character")
+        self.assertEqual(routing["conflicts"], [])
+        # No base track exists, so the record says so rather than borrowing a track name. Inventing
+        # one would be the base naming a domain, which is what the registry exists to stop.
+        self.assertIsNone(routing["track"])
+        self.assertEqual(validate_pipeline_routing(routing), [])
+
+    def test_a_provider_cannot_answer_a_conflict_that_is_not_its_own(self) -> None:
+        # It clears exactly one thing: "this kind has no base authoring track". Everything else --
+        # a hybrid that needs a human, a shaky classification, a provider claiming a different
+        # kind -- still fails closed, or a plugin could wave through work nobody vouched for.
+        for label, kwargs in (
+            ("wrong kind", dict(classification=classification("character"), provider_domain="cs2")),
+            ("hybrid", dict(classification=classification("hybrid"), provider_domain="hybrid")),
+            ("unknown", dict(classification=classification("unknown"), provider_domain="unknown")),
+            ("low confidence", dict(classification=classification("character", 0.5),
+                                    provider_domain="character")),
+        ):
+            with self.subTest(label):
+                routing = resolve_pipeline_routing(**kwargs)
+                self.assertEqual(routing["status"], "request-input")
+                self.assertTrue(routing["conflicts"])
+
+    def test_a_shaky_character_classification_names_BOTH_problems(self) -> None:
+        """It has two, and chaining them on `elif` reported only the first.
+
+        The record then said "its domain plugin supplies the content", implying the provider was
+        the whole answer, while the real blocker was that nobody is sure it is a character at all.
+        """
+        conflicts = resolve_pipeline_routing(
+            classification=classification("character", 0.5))["conflicts"]
+        self.assertTrue(any("no base authoring track" in c for c in conflicts))
+        self.assertTrue(any("confidence 0.50" in c for c in conflicts))
+
+    def test_a_provider_record_must_not_borrow_a_track_or_hide_its_provider(self) -> None:
+        good = resolve_pipeline_routing(classification=classification("character"),
+                                        provider_domain="character")
+        self.assertIn("pipelineRouting.track must be null when source is provider",
+                      validate_pipeline_routing(dict(good, track="weapon-v1.4")))
+        borrowed = dict(good)
+        del borrowed["provider"]
+        self.assertIn("pipelineRouting.provider must name the domain that resolved it",
+                      validate_pipeline_routing(borrowed))
+
     def test_the_character_track_is_no_longer_a_track_at_all(self) -> None:
         from forge._shared.pipeline_routing import TRACK_BY_KIND, VALID_TRACKS
 

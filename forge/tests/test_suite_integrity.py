@@ -71,8 +71,11 @@ TESTS_DIR = Path(__file__).resolve().parent
 #          check cannot see, and the half that was missed -- plus 4 added by a cleanup review,
 #          which found SECTION_AUTHORITY's plugin half checked only from the OTHER repo, by a test
 #          that skips when it cannot see this one
-#   = 1453
-COLLECTED_FLOOR = 1453
+#  +   4   test_pipeline_routing, from a correctness review: a provider resolving the one conflict
+#          it can answer, the three it cannot, and a shaky character classification naming BOTH
+#          its problems rather than only the first
+#   = 1457
+COLLECTED_FLOOR = 1457
 
 
 REPO_ROOT = TESTS_DIR.parents[1]

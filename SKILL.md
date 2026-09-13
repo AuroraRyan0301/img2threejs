@@ -77,14 +77,17 @@ python3 forge/state.py mark <step-id> --state .img2threejs/state.json --evidence
   modules (none today) and installed plugins (`cs2`, `character`) register identically, and
   `forge/state.py init` names what is available. A profile adds mandatory gates without changing
   the core order -- a domain plugin typically requires an authoritative classification, an intake
-  manifest, and a machine-readable domain review before AI review; `character` requires the
-  character contracts, landmark evidence, the humanoid sculpt spec and the Stage R rig steps, all from the installed plugin-character; without it the profile fails loud and the
-  nine Stage R steps (`grimoire/readiness/animation_contract.md`). Pick it whenever the rig must
-  MOVE — on `character` the Stage R gates are absent and the build completes without ever running
-  them, which is how animation used to ship broken. Its order is load-bearing: repair the mesh,
-  freeze it, bind additively, then verify parity. Every profile records suitability, projection
-  applicability, and
-  material-evidence applicability. The state file is a resumability index, not visual evidence:
+  manifest, and a machine-readable domain review before AI review; `character` is served entirely
+  by the installed plugin-character -- the character contracts, the landmark evidence, the humanoid
+  sculpt spec and its derived rig, and the nine Stage R rig steps. Without that plugin the profile
+  fails loud naming what is available, rather than quietly building a generic object. There is ONE
+  character profile and it always carries the rig steps; a static build skips a rig step with a
+  recorded reason, which the checklist already supports. The separate animated profile that used to
+  omit the Stage R gates is withdrawn, because omitting them is how animation shipped broken in
+  1.5.1: a gate absent from the checklist never runs, and a gate that never runs reports clean
+  forever. The rig order is load-bearing -- repair the mesh, freeze it, bind additively, then verify
+  parity. Every profile records suitability, projection applicability, and material-evidence
+  applicability. The state file is a resumability index, not visual evidence:
   renders, specs, review history, and deterministic gates remain the authoritative artifacts.
 
 ## Required Inputs

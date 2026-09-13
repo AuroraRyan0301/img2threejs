@@ -965,7 +965,20 @@ def main(argv: list[str]) -> int:
     incoming_routing = assessment.get("pipelineRouting") if isinstance(assessment, dict) else None
     incoming_classification = incoming_routing.get("classification") if isinstance(incoming_routing, dict) else None
     if incoming_classification is not None:
-        routing = resolve_pipeline_routing(classification=incoming_classification)
+        # A kind with no base track is a conflict the PROVIDER answers, and the answer may be
+        # standing right here: a resolved --domain plus the artifact it published. Refusing anyway
+        # made the conflict message advice that cannot succeed -- follow it exactly and you get it
+        # again. `resolve_pipeline_routing` owns `status`, so it is told about the provider rather
+        # than having its verdict patched afterwards: the first version of this fix let the run
+        # through with the record still saying `request-input`, which exited 0 here and then failed
+        # `strict-validation` with "pipelineRouting must be resolved before validation".
+        provider_domain = args.domain if (
+            args.domain is not None
+            and args.augmentation is not None
+            and args.augmentation.expanduser().is_file()
+        ) else None
+        routing = resolve_pipeline_routing(classification=incoming_classification,
+                                           provider_domain=provider_domain)
         spec["pipelineRouting"] = routing
         if routing["status"] != "resolved":
             parser.error("pipeline routing requires input: " + "; ".join(routing["conflicts"]))

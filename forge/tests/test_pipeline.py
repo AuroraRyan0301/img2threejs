@@ -807,6 +807,14 @@ class PipelineTest(unittest.TestCase):
         producer: plugin-character's emit step refuses to build without measured anatomy or an
         explicit `--style-heads`. Asserted for a character-labelled spec specifically, since that
         is the one that used to warn.
+
+        THAT SENTENCE WAS NOT TRUE WHEN IT WAS FIRST WRITTEN. A code review measured the producer
+        and found `emit_spec_augmentation.py` exiting 0 with no anatomy at all, authoring a full
+        default humanoid -- so the check existed in NEITHER repo, under a disposition asserting it
+        had moved. It is true now (plugin-character `tests/test_spec_augmentation_artifact.py`,
+        `TheAnatomyGate`), and the incident is recorded here rather than quietly corrected: a
+        disposition is a claim about another repo, and this suite cannot verify one. Writing it
+        down is not the same as checking it.
         """
         spec = self._fresh_spec("moderate")
         spec["preSpecAssessment"]["objectClass"]["primaryDomain"] = "character"
