@@ -1945,9 +1945,9 @@ def emit_rig_hierarchy(spec: dict[str, Any]) -> list[str]:
     Two things that are easy to get wrong here:
 
     - `jointPos` in the spec is **model space** (see `derive_character_rig` in plugin-character's
-      `tools/character_spec_template.py`). A
-      `THREE.Bone`'s position is parent-local, so each bone's offset is its own joint minus its
-      parent's joint; the root keeps its model-space joint unchanged.
+      `tools/character_spec_template.py`). A `THREE.Bone`'s position is parent-local, so each
+      bone's offset is its own joint minus its parent's joint; the root keeps its model-space
+      joint unchanged.
     - Bones are emitted **parents first**. The spec's bone list is sorted by `(has-parent, id)`,
       so `foot-l` precedes `shin-l` alphabetically — emitting in list order would parent a bone
       to one that does not exist yet. This walks the tree rather than trusting list order.
@@ -2038,8 +2038,8 @@ def _rig_pose_lines(
 
     That substitution is exact rather than approximate because a bone's origin IS its
     component's pivot origin: a rig derivation takes each `jointPos` from the component's proximal
-    end, and the bone parent chain mirrors the component parent chain. Same origin, same
-    parent frame, same euler order — so the same euler triple produces the same rotation.
+    end, and the bone parent chain mirrors the component parent chain. Same origin, same parent
+    frame, same euler order — so the same euler triple produces the same rotation.
 
     **Applied after `bind()`, never before.** These rotations are the pose, not the bind pose;
     setting them before the `Skeleton` is constructed would bake the pose in as rest and nothing

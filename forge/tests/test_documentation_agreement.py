@@ -17,7 +17,9 @@ not, and nothing that looks at code or at `docs/` alone can see it.
 
 from __future__ import annotations
 
+import json
 import re
+import sys
 import unittest
 from pathlib import Path
 
@@ -180,3 +182,68 @@ class TheWithdrawnProfileIsNotStillTaught(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TheAuthorityRulingCoversWhatTheMergeAdmits(unittest.TestCase):
+    """`SECTION_AUTHORITY`'s plugin half is prose, and prose beside a constant drifts.
+
+    Its BASE half cannot drift -- it is derived from `BASE_OWNED` by comprehension. Its PLUGIN half
+    is hand-written, and until this class the only thing checking it lived in ANOTHER repo
+    (plugin-character's `test_spec_augmentation_artifact.py`) and skipped whenever that repo could
+    not see this one. A cleanup review called that out: a structure that looks like enforced code
+    but is only cross-checked by an external, skippable test is exactly the shape that rots.
+
+    So the subject here is the base's OWN frozen artifact. `fixtures/oracle-character/spec.json` is
+    what this repo produced for a character before the extraction; every section in it that is not
+    base-owned is a section a provider must now author, and therefore one the base has to have
+    ruled on. It needs no plugin installed and no second checkout.
+    """
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        sys.path[:0] = [str(ROOT / "forge"), str(ROOT / "forge" / "_shared")]
+        from spec_augmentation import BASE_OWNED, SECTION_AUTHORITY  # noqa: PLC0415
+        cls.authority, cls.base_owned = SECTION_AUTHORITY, BASE_OWNED
+        cls.frozen = json.loads(
+            (ROOT / "forge/tests/fixtures/oracle-character/spec.json").read_text(encoding="utf-8"))
+
+    def test_every_ruled_section_is_a_real_section(self) -> None:
+        """A ruling for a key no spec carries is a decision about nothing.
+
+        This is the check that has a subject on THIS side. The first version of this test asserted
+        the opposite -- that every non-base-owned section in the frozen spec has a ruling -- and it
+        was wrong on a false premise: `BASE_OWNED` is a deny-list of what a plugin may not WRITE,
+        not a list of what the base does not author. The frozen spec carries 24 sections
+        (`actionReadiness`, `animationAnchors`, `performanceBudget`, …) that the base authors
+        itself and no provider ever touches; demanding a ruling for each would have been demanding
+        the base rule on questions nobody asked.
+        """
+        self.assertEqual(sorted(set(self.authority) - set(self.frozen) - set(self.base_owned)), [])
+
+    def test_every_base_owned_key_is_ruled_base(self) -> None:
+        for key in sorted(self.base_owned):
+            self.assertTrue(self.authority[key].startswith("BASE."), key)
+
+    def test_no_ruling_contradicts_the_deny_list(self) -> None:
+        # A key ruled writable by a plugin while sitting in BASE_OWNED would be a ruling the merge
+        # refuses to honour -- documentation that the code disagrees with, which is worse than none.
+        contradictory = sorted(k for k, v in self.authority.items()
+                               if k in self.base_owned and not v.startswith("BASE."))
+        self.assertEqual(contradictory, [])
+
+    def test_the_plugin_half_is_checked_from_the_provider_side_and_says_so(self) -> None:
+        """What this repo CANNOT check, asserted as a pointer rather than left implicit.
+
+        Whether the PLUGIN half is complete depends on what a provider contributes, which the base
+        does not know and must not assume -- that is the deny-list design. The check that a
+        provider's sections are all ruled on lives in the provider
+        (plugin-character `tests/test_spec_augmentation_artifact.py::RuledOnByTheBase`). This
+        asserts the ruling still tells the next reader where that check is, so the split is a
+        documented division of labour rather than a gap either side assumes the other covers.
+        """
+        source = (ROOT / "forge/_shared/spec_augmentation.py").read_text(encoding="utf-8")
+        self.assertIn("NOT AN ALLOW-LIST", source.upper())
+        self.assertIn("test_spec_augmentation_artifact.py", source)
+        plugin_ruled = {k for k, v in self.authority.items() if v.startswith("PLUGIN")}
+        self.assertEqual(plugin_ruled & set(self.base_owned), set())
+        self.assertTrue(plugin_ruled, "the ruling has no plugin half left to check")

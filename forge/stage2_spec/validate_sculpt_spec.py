@@ -897,11 +897,10 @@ def validate_pipeline_routing_contract(spec: dict[str, Any], errors: list[str]) 
     if not isinstance(routing, dict) or routing.get("status") != "resolved":
         errors.append("pipelineRouting must be resolved before validation")
         return
-    routing_track = routing.get("track")
-    object_class = spec.get("preSpecAssessment", {}).get("objectClass", {})
-    # The two character-v1.5 checks that stood here are gone with the track. `character-v1.5` is no
-    # longer in VALID_TRACKS, so `validate_pipeline_routing` above already rejects a spec carrying
-    # it -- re-checking its coherence below that would be checking a record we have just refused.
+    # The two character-v1.5 checks that stood here are gone with the track, and `routing_track`
+    # and `object_class` went with them -- both existed only to feed those checks. `character-v1.5`
+    # is no longer in VALID_TRACKS, so `validate_pipeline_routing` above already rejects a spec
+    # carrying it; re-checking its coherence below that would be checking a record just refused.
     # There is deliberately no domain requirement on weapon-v1.4. This used to read
     #   if routing_track == "weapon-v1.4" and not legacy_cs2 and object_class.get("cs2") is not True
     # which was wrong twice over: weapon-v1.4 is the weapon *shape* template, keyed by classified

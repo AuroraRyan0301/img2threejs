@@ -66,11 +66,13 @@ TESTS_DIR = Path(__file__).resolve().parent
 #          "two installed plugins" (D9), plus the withdrawal-table scenarios
 #  +   2   test_rig_workflow_steps 13 -> 15: the base-asset agreement is derived from the installed
 #          declarations rather than transcribed, and asserts the moved pages are GONE
-#  +   6   test_documentation_agreement.py, new: dead paths in live guidance (docstrings included)
+#  +  10   test_documentation_agreement.py, new: dead paths in live guidance (docstrings included)
 #          and the withdrawn identifier surviving in prose -- the second is the half a path-scoped
-#          check cannot see, and the half that was missed
-#   = 1449
-COLLECTED_FLOOR = 1449
+#          check cannot see, and the half that was missed -- plus 4 added by a cleanup review,
+#          which found SECTION_AUTHORITY's plugin half checked only from the OTHER repo, by a test
+#          that skips when it cannot see this one
+#   = 1453
+COLLECTED_FLOOR = 1453
 
 
 REPO_ROOT = TESTS_DIR.parents[1]
