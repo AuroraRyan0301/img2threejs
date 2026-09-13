@@ -74,8 +74,12 @@ TESTS_DIR = Path(__file__).resolve().parent
 #  +   4   test_pipeline_routing, from a correctness review: a provider resolving the one conflict
 #          it can answer, the three it cannot, and a shaky character classification naming BOTH
 #          its problems rather than only the first
-#   = 1457
-COLLECTED_FLOOR = 1457
+#  +   3   test_pipeline_routing again, from the RE-review of those fixes: the provider branch it
+#          added had opened a hole -- the validator checked the record's shape and none of the
+#          four conditions the resolver checks, so a hand-edited spec walked a 0.40-confidence
+#          hybrid through as resolved. One predicate now, and a test that the two cannot disagree
+#   = 1460
+COLLECTED_FLOOR = 1460
 
 
 REPO_ROOT = TESTS_DIR.parents[1]

@@ -111,6 +111,56 @@ class PipelineRoutingTests(unittest.TestCase):
         self.assertIn("pipelineRouting.provider must name the domain that resolved it",
                       validate_pipeline_routing(borrowed))
 
+    def test_a_record_cannot_claim_a_provider_it_is_not_entitled_to(self) -> None:
+        """Shape alone is not authority, and this is the hole the provider branch opened.
+
+        Before this check, `validate_pipeline_routing` asserted only that `track` was null and
+        `provider` was a non-empty string -- so a hand-edited spec walked a 0.40-confidence HYBRID
+        through as `resolved` with zero errors. That is the "needs a human" case this module exists
+        to stop, and before the provider branch existed the edit was impossible, because `track`
+        had to be in VALID_TRACKS.
+        """
+        def record(kind, confidence, provider):
+            return {"version": 1, "source": "provider", "track": None, "provider": provider,
+                    "status": "resolved", "conflicts": [],
+                    "classification": classification(kind, confidence)}
+
+        for label, args in (("a hybrid that needs a human", ("hybrid", 0.40, "not-installed")),
+                            ("a shaky character", ("character", 0.40, "character")),
+                            ("a kind the base builds itself", ("weapon", 0.95, "weapon")),
+                            ("a provider claiming another kind", ("character", 0.95, "cs2"))):
+            with self.subTest(label):
+                errors = validate_pipeline_routing(record(*args))
+                self.assertTrue(any("cannot resolve" in e for e in errors), errors)
+
+        self.assertEqual(validate_pipeline_routing(record("character", 0.95, "character")), [])
+
+    def test_the_resolver_and_the_validator_cannot_disagree(self) -> None:
+        # They drifted the moment the branch was written -- four conditions on one side, zero on
+        # the other. One predicate now, asserted to be the one both use.
+        from forge._shared.pipeline_routing import provider_may_resolve
+
+        for kind, confidence, provider in (("character", 0.95, "character"),
+                                           ("character", 0.40, "character"),
+                                           ("hybrid", 0.99, "hybrid"),
+                                           ("weapon", 0.99, "weapon"),
+                                           ("character", 0.95, "cs2")):
+            resolved = resolve_pipeline_routing(
+                classification=classification(kind, confidence), provider_domain=provider)
+            took_the_branch = resolved["source"] == "provider"
+            self.assertEqual(took_the_branch, provider_may_resolve(kind, confidence, provider),
+                             (kind, confidence, provider))
+
+    def test_an_explicit_track_is_not_swallowed_by_the_provider_branch(self) -> None:
+        # The branch returns `track: None`, so taking it would drop the caller's explicit request
+        # with no conflict recorded. The contradiction goes down the normal path instead.
+        routing = resolve_pipeline_routing(explicit_track="weapon-v1.4",
+                                           classification=classification("character"),
+                                           provider_domain="character")
+        self.assertNotEqual(routing["source"], "provider")
+        self.assertEqual(routing["status"], "request-input")
+        self.assertTrue(routing["conflicts"])
+
     def test_the_character_track_is_no_longer_a_track_at_all(self) -> None:
         from forge._shared.pipeline_routing import TRACK_BY_KIND, VALID_TRACKS
 

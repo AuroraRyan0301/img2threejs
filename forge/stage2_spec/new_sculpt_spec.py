@@ -980,6 +980,13 @@ def main(argv: list[str]) -> int:
         routing = resolve_pipeline_routing(classification=incoming_classification,
                                            provider_domain=provider_domain)
         spec["pipelineRouting"] = routing
+        # `make_spec` copies the assessment's routing into preSpecAssessment too. Leaving it stale
+        # put two contradictory records in one spec -- the top-level one resolved-by-provider, the
+        # nested one still `request-input` with the conflicts that had just been answered. Nothing
+        # reads the nested copy today, which is exactly why it would have been believed later.
+        if isinstance(spec.get("preSpecAssessment"), dict) and \
+                "pipelineRouting" in spec["preSpecAssessment"]:
+            spec["preSpecAssessment"]["pipelineRouting"] = routing
         if routing["status"] != "resolved":
             parser.error("pipeline routing requires input: " + "; ".join(routing["conflicts"]))
     # A domain plugin publishes an authoritative recipe as a workspace artifact; the base pulls it

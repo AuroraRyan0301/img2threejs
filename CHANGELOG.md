@@ -85,7 +85,9 @@ base names no domain at all and the v2.0 plugin split closes. OpenSpec change:
   `provider_domain`; a provider-resolved record carries `track: null` and names its provider,
   because there is no base track and inventing a name for one would be the base naming a domain.
   It answers exactly one conflict: a hybrid, an unknown, a shaky classification or a provider
-  claiming a different kind all still fail closed.
+  claiming a different kind all still fail closed. A re-review caught that `validate_pipeline_routing`
+  enforced the record's SHAPE and none of those conditions, so a hand-edited spec walked a
+  0.40-confidence hybrid through as `resolved`; both sides now call one shared predicate.
 - **A low-confidence `character` classification now names both its problems.** The confidence check
   was an `elif` on the no-track branch, so the record said only "its domain plugin supplies the
   content" while the real blocker was that nobody was sure it was a character.
@@ -97,10 +99,10 @@ base names no domain at all and the v2.0 plugin split closes. OpenSpec change:
 
 ### Verification
 
-- `COLLECTED_FLOOR` **set** to the measured 1457, from 1192 against 1458 collected — 266 of slack,
+- `COLLECTED_FLOOR` **set** to the measured 1460, from 1192 against 1458 collected — 266 of slack,
   enough to absorb a quarter of the suite going dark. The withdrawn attempt lost 100 tests and the
   floor never moved. Arithmetic in `forge/tests/test_suite_integrity.py`.
-- `IMG2_HOME=$(mktemp -d) pytest forge/tests`: 1391 passed, 66 skipped, 0 failed, 0 errors.
+- `IMG2_HOME=$(mktemp -d) pytest forge/tests`: 1394 passed, 66 skipped, 0 failed, 0 errors.
 
 ## [2.0.0] — 2026-09-05
 

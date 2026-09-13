@@ -102,6 +102,32 @@ def classification_from_cs2_manifest(manifest: dict[str, Any]) -> dict[str, Any]
     }
 
 
+def provider_may_resolve(kind: Any, confidence: Any, provider_domain: Any) -> bool:
+    """Whether an installed provider is allowed to clear this classification's one conflict.
+
+    Shared by `resolve_pipeline_routing` and `validate_pipeline_routing` deliberately. They had
+    drifted the moment the branch was written: the resolver checked four things, the validator
+    checked the record's SHAPE and nothing else, so a hand-edited spec claiming
+    `source: "provider"` walked a 0.40-confidence hybrid through as `resolved` -- the exact
+    "needs a human" case this module exists to stop, and a way around the track check that was
+    impossible before the provider branch existed.
+
+    A provider answers exactly ONE conflict: "this kind has no base authoring track". It cannot
+    vouch for a kind nobody is confident about, a hybrid that needs a person, or a kind the base
+    can build perfectly well itself.
+    """
+    return (
+        isinstance(provider_domain, str)
+        and bool(provider_domain)
+        and kind == provider_domain
+        and kind not in TRACK_BY_KIND
+        and kind not in {"hybrid", "unknown"}
+        and isinstance(confidence, (int, float))
+        and not isinstance(confidence, bool)
+        and confidence >= CONFIDENCE_THRESHOLD
+    )
+
+
 def resolve_pipeline_routing(
     *,
     explicit_track: str | None = None,
@@ -184,11 +210,11 @@ def resolve_pipeline_routing(
     # clear a malformed classification, a low-confidence one, or a hybrid/unknown that needs a human
     # -- so the claim has to match the kind, and the kind has to be one the base genuinely lacks.
     answered_by_provider = (
-        provider_domain is not None
-        and kind == provider_domain
-        and kind not in TRACK_BY_KIND
-        and kind not in {"hybrid", "unknown"}
-        and confidence >= CONFIDENCE_THRESHOLD
+        provider_may_resolve(kind, confidence, provider_domain)
+        # An explicit track is a request this branch would silently drop -- it returns
+        # `track: None`, so the caller's choice would vanish with no conflict recorded. Let the
+        # normal path handle the contradiction instead of swallowing it.
+        and explicit_track is None
         and not [c for c in conflicts if "has no base authoring track" not in c]
     )
     if answered_by_provider:
@@ -240,6 +266,17 @@ def validate_pipeline_routing(routing: Any) -> list[str]:
         errors.append("pipelineRouting.classification is malformed")
     if not isinstance(classification, dict) or classification != normalized:
         errors.append("pipelineRouting.classification must use the shared classification contract")
+    if routing.get("source") == "provider" and isinstance(routing.get("provider"), str) \
+            and routing["provider"] and not provider_may_resolve(
+                normalized["kind"], normalized["confidence"], routing["provider"]):
+        # Shape alone is not authority, and this check needs the NORMALIZED classification, so it
+        # sits below rather than beside the shape checks above. Without it the provider branch is a
+        # hole in the fail-closed guarantee: the same record, hand-edited, admits anything -- a
+        # 0.40-confidence hybrid came back `resolved` with no errors at all.
+        errors.append(
+            f"pipelineRouting.provider {routing['provider']!r} cannot resolve a "
+            f"{normalized['kind']!r} classification at confidence {normalized['confidence']:.2f}"
+        )
     conflicts = routing.get("conflicts")
     if not isinstance(conflicts, list) or not all(isinstance(conflict, str) for conflict in conflicts):
         errors.append("pipelineRouting.conflicts must be a list")
