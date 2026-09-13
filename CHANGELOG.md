@@ -85,10 +85,10 @@ base names no domain at all and the v2.0 plugin split closes. OpenSpec change:
 
 ### Verification
 
-- `COLLECTED_FLOOR` **set** to the measured 1443, from 1192 against 1458 collected — 266 of slack,
+- `COLLECTED_FLOOR` **set** to the measured 1453, from 1192 against 1458 collected — 266 of slack,
   enough to absorb a quarter of the suite going dark. The withdrawn attempt lost 100 tests and the
   floor never moved. Arithmetic in `forge/tests/test_suite_integrity.py`.
-- `IMG2_HOME=$(mktemp -d) pytest forge/tests`: 1383 passed, 66 skipped, 0 failed, 0 errors.
+- `IMG2_HOME=$(mktemp -d) pytest forge/tests`: 1387 passed, 66 skipped, 0 failed, 0 errors.
 
 ## [2.0.0] — 2026-09-05
 
