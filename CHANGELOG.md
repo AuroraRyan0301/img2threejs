@@ -41,7 +41,9 @@ base names no domain at all and the v2.0 plugin split closes. OpenSpec change:
 
 - **`validate_character_track` is removed** with the template it gated. The base has no view on
   anatomy; the requirement moved to the producer, where plugin-character's emit step refuses to
-  build without measured anatomy or an explicit `--style-heads`.
+  build without measured anatomy or an explicit `--style-heads`. That sentence was NOT true when
+  first written — a review measured the producer exiting 0 with no anatomy at all, so the check
+  briefly existed in neither repo. It is true as of plugin-character 0.3.0.
 
 - **`rig_is_bone_track` routes on the payload alone.** It required
   `objectClass.primaryDomain in {"character", "hybrid"}`; a spec carrying `rig.bones` with
@@ -77,6 +79,16 @@ base names no domain at all and the v2.0 plugin split closes. OpenSpec change:
 
 ### Fixed
 
+- **A `character` classification with its provider installed no longer fails closed.** The routing
+  conflict named `--domain character` plus a spec-augmentation artifact as the remedy, then refused
+  the run that supplied both — advice that cannot succeed. `resolve_pipeline_routing` now takes
+  `provider_domain`; a provider-resolved record carries `track: null` and names its provider,
+  because there is no base track and inventing a name for one would be the base naming a domain.
+  It answers exactly one conflict: a hybrid, an unknown, a shaky classification or a provider
+  claiming a different kind all still fail closed.
+- **A low-confidence `character` classification now names both its problems.** The confidence check
+  was an `elif` on the no-track branch, so the record said only "its domain plugin supplies the
+  content" while the real blocker was that nobody was sure it was a character.
 - `forge/state.py` no longer builds `--profile` choices with argparse `choices=`. One bad profile
   gave two different answers — `init` printed `invalid choice: 'x' (choose from ...)`, naming an
   availability list from which "your plugin is missing" and "this profile no longer exists" are
@@ -85,10 +97,10 @@ base names no domain at all and the v2.0 plugin split closes. OpenSpec change:
 
 ### Verification
 
-- `COLLECTED_FLOOR` **set** to the measured 1453, from 1192 against 1458 collected — 266 of slack,
+- `COLLECTED_FLOOR` **set** to the measured 1457, from 1192 against 1458 collected — 266 of slack,
   enough to absorb a quarter of the suite going dark. The withdrawn attempt lost 100 tests and the
   floor never moved. Arithmetic in `forge/tests/test_suite_integrity.py`.
-- `IMG2_HOME=$(mktemp -d) pytest forge/tests`: 1387 passed, 66 skipped, 0 failed, 0 errors.
+- `IMG2_HOME=$(mktemp -d) pytest forge/tests`: 1391 passed, 66 skipped, 0 failed, 0 errors.
 
 ## [2.0.0] — 2026-09-05
 
