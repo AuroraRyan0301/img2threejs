@@ -1,0 +1,90 @@
+--- upstream-v2.0.0/SKILL.md
++++ shared-edit/SKILL.md
+@@ -7,7 +7,7 @@
+ 
+ # img2threejs — Image to procedural Three.js
+ 
+-Rebuild the object visible in a reference image as a **code-only** procedural Three.js model,
++Build the requested object, or new/replacement part when editing a source GLB, as a **code-only** procedural Three.js model,
+ gated by a staged sculpting pipeline and an AI-vision self-correction loop. This is
+ reconstruction-by-code, **not** photogrammetry, mesh extraction, or downloaded art packs. That
+ promise governs how the model is *built* — it says nothing about which file formats it can
+@@ -22,6 +22,54 @@
+ This file is the always-loaded router: it holds the order of operations and every hard rule as one
+ line. The full contract behind each rule lives in the `grimoire/` or `docs/` file that rule names —
+ read the named file at the moment you reach that stage, not before.
++
++## Editing an existing source model
++
++When the task supplies a GLB to edit, the construction subject below is ONLY the
++new/replacement part. Retain all other source geometry, materials, node names and
++world transforms unchanged. Do not independently reconstruct the host. This is
++an editing scope selection, not a relaxation of the part-construction pipeline.
++Read `docs/edit_render_backend.md` for this branch's capture adapter; all build,
++review, camera iteration and gate requirements below otherwise remain shared.
++
++For every turn, read the text instruction AND target image; inspect the current
++model and infer the operation and affected parts yourself. Start from your own
++previous saved output (turn 1 starts from the supplied source). Do not reset to
++GT, use external assets or obtain hidden GT geometry/diagnostic channels.
++
++- Remove: physically delete the identified target and its exclusively owned data,
++  compact/remap GLB references, reload and verify preservation of surviving parts.
++  Do not merely hide or unlink scene.nodes. Render if uncertain; no construction
++  spec or factory is required when no new part is built.
++- Add/replace: apply the COMPLETE original assessment/spec/factory/locked-pass/
++  gate/review/correction workflow below to the new part. Install it in the retained
++  source and inspect both part geometry and assembly. Preserve unrelated children.
++- Retexture: use the same replacement construction and iterative review route;
++  preserve intended shape/pose while matching the new appearance. Record
++  semantic_op=retexture, execution_op=replace; do not change the dataset label.
++
++Keep one construction state/spec per edited part/turn. The source/current GLB is
++an unchanged-region baseline, not the target for the requested change. Collect
++six-pass evidence and real semantic mappings using the branch adapter; compare
++unchanged regions against your own previous model, requested appearance against
++supplied target RGB. Without target diagnostic channels, paired target-channel
++comparison is unavailable, not a pass. Never fabricate channels or gate evidence.
++
++Retain original camera-first iteration and freely chosen diagnostic/close-up views.
++When an evaluation camera is supplied, preserve it separately and return to it
++before accepting a constructed turn. Do not substitute a fitted camera for final
++scoring. Run the same gates and bounded correction budgets in either backend.
++Record any missing required evidence as partial. In unattended chains a hard stop
++ends the current construction attempt: save the best valid candidate or explicitly
++retain the prior state and continue; if no valid state exists mark dependent turns
++skipped. Do not reset budgets. Interactive tasks retain request-input behavior.
++
++Export the complete edited scene as output/turnNN.glb, in source coordinates.
++Preserve source input/ref files and keep intermediate artifacts inside the example.
++GLB serialization/merging is authorized plumbing; new parts remain procedural
++Three.js code. Retained source content is not subject to the no-copy reconstruction
++rule. Animation/UI requirements apply to newly built parts when the task requires
++those capabilities, not as permission to alter the untouched host.
+ 
+ ## Canonical shared checkout
+ 
+@@ -59,7 +107,7 @@
+ ## Mandatory Local State Gate
+ 
+ Conversation context is disposable; `.img2threejs/state.json` is the local checklist authority.
+-Initialize once per reconstruction, then gate every step through it:
++Initialize once per reconstruction or constructed editing part, then gate every construction step through it:
+ 
+ ```bash
+ python3 forge/state.py init --state .img2threejs/state.json --reference <img> --profile <generic|character|installed-domain> --spec object-sculpt-spec.json
+@@ -252,7 +300,13 @@
+ 
+ ## GLB-mediated v2 render-fidelity track (1.5 alpha)
+ 
+-When the user supplies a GLB as an intermediate reference, the browser-rendered GLB is the
++For source-model editing use the same capture/profile/gate mechanics below on the
++current and assembled candidate models, with the baseline semantics defined in
++"Editing an existing source model". Backend-specific capture transport and evidence
++encoding are defined in `docs/edit_render_backend.md`.
++
++For whole-object reconstruction (not source-model editing), when the user supplies
++a GLB as an intermediate reference, the browser-rendered GLB is the
+ structural and visual baseline for an independently authored procedural factory. The raw GLB is
+ never pixel evidence and its topology/materials are never copied into the factory. Before any
+ factory edit — full contract in `grimoire/build/python_threejs_render_bridge.md`, machine-readable

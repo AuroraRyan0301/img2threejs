@@ -1,8 +1,11 @@
-Your example: {FOLDER}. Complete every turn using the source-model editing workflow below. Inputs are input/source.glb, input/instructions.json, ref/turnNN.png and ref/camera.json. Infer each operation from text and target image; start from your previous saved output, preserve untouched parts, and write output/turnNN.glb. Remove is direct physical deletion with verification; add/replace/retexture require the full img2threejs construction and browser review loop. Retexture executes as replacement with its semantic label retained.
+Your example: {FOLDER}. Use assigned GPU {GPU} when applicable.
 
-Use the img2threejs checkout at /gs/fs/tga-koike-shanda4/yurh/img2threejs_edit_web, Three.js and the original browser capture tools. Do not use Blender, an offline rasterizer, external assets or generative geometry/image models. Keep files inside the example; do not overwrite input/ref or modify the skill. Read the original named supporting documents when required. Preserve the supplied evaluation camera separately from freely adjustable review cameras. Use actual tool timestamps; do not invent usage or gate evidence. Complete the chain under the bounded failure policy below. Final response: per-turn done/partial/skipped with reason, then output GLB paths.
+Inputs: input/source.glb (Y-up initial model), input/instructions.json, ref/turnNN.png (target after turn N) and ref/camera.json. Edit your own previous saved output, starting with source.glb. Infer each operation and region from text/image; preserve unaffected parts. Save the full model as output/turnNN.glb. Follow the complete shared editing skill below and read docs/edit_render_backend.md in this skill checkout before rendering. Remove is direct physical deletion; add/replace/retexture retain the original construction and review loop. No external assets, hidden GT models/passes or generative geometry/image models. Keep all files within the example, preserve input/ref, and do not modify skill/renderer code. Record real timestamps, changes, limitations and gate outcomes; do not fabricate evidence. Follow bounded unattended-chain failure behavior and attempt all turns. Final reply: per-turn done/partial/skipped with reason and output paths.
 
-==================== Web editing SKILL.md (verbatim) ====================
+Skill checkout: /gs/fs/tga-koike-shanda4/yurh/img2threejs_edit_web
+Node 16 and three@0.160: /gs/fs/tga-koike-shanda4/yurh/three_env/node_modules.
+
+==================== Shared source-editing SKILL.md (verbatim) ====================
 ---
 name: img2threejs
 description: Turn an object or character reference image into a quality-gated, animation-ready procedural Three.js model built in code. Use for image-to-3D reconstruction, detail-accurate object rebuilds, stylized/likeness-maximized human characters, sculpt specs, and staged code generation.
@@ -12,9 +15,9 @@ version: 2.0.0
 
 # img2threejs — Image to procedural Three.js
 
-Edit an existing GLB by constructing new/replacement parts as **code-only** procedural Three.js models,
+Build the requested object, or new/replacement part when editing a source GLB, as a **code-only** procedural Three.js model,
 gated by a staged sculpting pipeline and an AI-vision self-correction loop. This is
-part construction by code, **not** photogrammetry or downloaded art packs. Retain untouched source meshes and materials verbatim. That
+reconstruction-by-code, **not** photogrammetry, mesh extraction, or downloaded art packs. That
 promise governs how the model is *built* — it says nothing about which file formats it can
 subsequently be *exported* to; an explicitly-selected emission target (`--target <kind>`) is a
 terminal, whole-artifact transform of the already-built model, verified to its own stated limit,
@@ -28,52 +31,53 @@ This file is the always-loaded router: it holds the order of operations and ever
 line. The full contract behind each rule lives in the `grimoire/` or `docs/` file that rule names —
 read the named file at the moment you reach that stage, not before.
 
-## Source-model editing task
+## Editing an existing source model
 
-This branch edits a supplied model instead of reconstructing the whole object.
-Keep the upstream browser Three.js rendering, camera matching, six-pass v2 bridge,
-semantic mapping, geometry export, staged build gates and bounded self-correction.
-Only the unit of construction changes: it is the requested new/replacement part,
-not the entire source model. Do not use Blender or another renderer in this branch.
+When the task supplies a GLB to edit, the construction subject below is ONLY the
+new/replacement part. Retain all other source geometry, materials, node names and
+world transforms unchanged. Do not independently reconstruct the host. This is
+an editing scope selection, not a relaxation of the part-construction pipeline.
+Read `docs/edit_render_backend.md` for this branch's capture adapter; all build,
+review, camera iteration and gate requirements below otherwise remain shared.
 
-For each turn read the text instruction and target image, inspect the current
-GLB, and infer the operation and affected region yourself. Start turn 1 from the
-source and later turns from your own previous saved output. Preserve unrelated
-geometry, materials, node names and world transforms.
+For every turn, read the text instruction AND target image; inspect the current
+model and infer the operation and affected parts yourself. Start from your own
+previous saved output (turn 1 starts from the supplied source). Do not reset to
+GT, use external assets or obtain hidden GT geometry/diagnostic channels.
 
-- Remove: physically delete the target and exclusively-owned resources, remap
-  references and reload to verify. Do not merely hide or unlink scene.nodes.
-  Render in the browser if uncertain; no new-part sculpting loop is needed.
-- Add/replace: run the full upstream spec → factory → locked passes → browser
-  render → diagnostics → AI visual review → correction loop below on the new
-  part; merge it into the retained source model for in-context review.
-- Retexture: use that replacement construction/iteration route for the affected
-  part, matching its original intended geometry/pose and the new appearance.
-  Record semantic_op=retexture and execution_op=replace. It is not permission
-  to change unrelated geometry or skip iteration with a one-line recolor.
+- Remove: physically delete the identified target and its exclusively owned data,
+  compact/remap GLB references, reload and verify preservation of surviving parts.
+  Do not merely hide or unlink scene.nodes. Render if uncertain; no construction
+  spec or factory is required when no new part is built.
+- Add/replace: apply the COMPLETE original assessment/spec/factory/locked-pass/
+  gate/review/correction workflow below to the new part. Install it in the retained
+  source and inspect both part geometry and assembly. Preserve unrelated children.
+- Retexture: use the same replacement construction and iterative review route;
+  preserve intended shape/pose while matching the new appearance. Record
+  semantic_op=retexture, execution_op=replace; do not change the dataset label.
 
-Load the retained source plus generated part into the actual Three.js runtime.
-Review the installed part as well as its isolated geometry. Export the complete
-edited scene as output/turnNN.glb, preserving source coordinates and scale.
-Use a per-turn spec/state and keep all intermediate files inside the example.
-Do not fabricate gate evidence. A construction hard stop ends that attempt: in
-an unattended chain record partial, save the best valid candidate (or explicitly
-retain the prior state), and proceed from it; if no valid state exists, mark
-remaining turns blocked/skipped. Do not reset state to evade correction budgets.
-For interactive tasks retain the upstream request-input behavior.
+Keep one construction state/spec per edited part/turn. The source/current GLB is
+an unchanged-region baseline, not the target for the requested change. Collect
+six-pass evidence and real semantic mappings using the branch adapter; compare
+unchanged regions against your own previous model, requested appearance against
+supplied target RGB. Without target diagnostic channels, paired target-channel
+comparison is unavailable, not a pass. Never fabricate channels or gate evidence.
 
-The supplied target RGB is the appearance reference. A source/current GLB is the
-preservation baseline, not a GT target for newly edited content. Capture the six
-browser passes for the current and candidate states with consistent semantic IDs
-and camera profiles. Compare unchanged regions against the current-state baseline;
-judge requested edits against the target RGB. Do not seek hidden GT meshes/passes
-or claim target depth/normal agreement without those reference channels. Missing
-paired target channels are explicitly unavailable, not fabricated. Keep the
-upstream renderer/profile schema truthful as browser-threejs.
+Retain original camera-first iteration and freely chosen diagnostic/close-up views.
+When an evaluation camera is supplied, preserve it separately and return to it
+before accepting a constructed turn. Do not substitute a fitted camera for final
+scoring. Run the same gates and bounded correction budgets in either backend.
+Record any missing required evidence as partial. In unattended chains a hard stop
+ends the current construction attempt: save the best valid candidate or explicitly
+retain the prior state and continue; if no valid state exists mark dependent turns
+skipped. Do not reset budgets. Interactive tasks retain request-input behavior.
 
-Review cameras remain editable with the upstream camera-first feedback loop.
-If a fixed evaluation camera is supplied, retain it separately and return to it
-for the final comparison; orbit/close-up/fitted review views remain available.
+Export the complete edited scene as output/turnNN.glb, in source coordinates.
+Preserve source input/ref files and keep intermediate artifacts inside the example.
+GLB serialization/merging is authorized plumbing; new parts remain procedural
+Three.js code. Retained source content is not subject to the no-copy reconstruction
+rule. Animation/UI requirements apply to newly built parts when the task requires
+those capabilities, not as permission to alter the untouched host.
 
 ## Canonical shared checkout
 
@@ -93,7 +97,7 @@ action-ready props, game objects, botanical/mechanical parts, and stylized recon
 
 ## Core Promise
 
-For each new/replacement part, sculpt from the target image in order — never one-shot a mesh:
+Sculpt from a photo, in order — never one-shot a mesh:
 1. **Run `python3 forge/next.py --state .img2threejs/state.json [<spec>]` first**, at every start,
    resume, and before every correction iteration. It reports the ordered checklist, exact next
    command, evidence status, and bounded correction-loop status; it never replaces the spec/pass
@@ -111,7 +115,7 @@ hidden sides or guarantee exact geometry — say so instead of faking confidence
 ## Mandatory Local State Gate
 
 Conversation context is disposable; `.img2threejs/state.json` is the local checklist authority.
-Initialize once per constructed part/turn, then gate every construction step through it:
+Initialize once per reconstruction or constructed editing part, then gate every construction step through it:
 
 ```bash
 python3 forge/state.py init --state .img2threejs/state.json --reference <img> --profile <generic|character|installed-domain> --spec object-sculpt-spec.json
@@ -304,18 +308,23 @@ Full flags: `grimoire/scripts.md`. Never let a script *score* visuals — that i
 
 ## GLB-mediated v2 render-fidelity track (1.5 alpha)
 
-When editing a supplied GLB, browser-render the current GLB as the preservation
-baseline and render the assembled candidate through the same browser route. Copy
-retained source topology/materials unchanged; the factory constructs only new or
-replacement parts. The raw GLB is not pixel evidence. The capture/profile mechanics
-are in `grimoire/build/python_threejs_render_bridge.md`, machine-readable
+For source-model editing use the same capture/profile/gate mechanics below on the
+current and assembled candidate models, with the baseline semantics defined in
+"Editing an existing source model". Backend-specific capture transport and evidence
+encoding are defined in `docs/edit_render_backend.md`.
+
+For whole-object reconstruction (not source-model editing), when the user supplies
+a GLB as an intermediate reference, the browser-rendered GLB is the
+structural and visual baseline for an independently authored procedural factory. The raw GLB is
+never pixel evidence and its topology/materials are never copied into the factory. Before any
+factory edit — full contract in `grimoire/build/python_threejs_render_bridge.md`, machine-readable
 schema in `docs/specs/render-profile.v2.schema.json` (+ example; fail-closed validation):
 
 1. `forge/stage1_intake/probe_glb.py` first. A merged one-node/one-mesh asset is `insufficient`
    for semantic labels; request a multipart GLB or a browser semantic-ID pass before claiming
    exact regions.
 2. Author ONE shared `render-profile.v2` (`forge/stage4_review/validate_render_profile.py`) used by
-   both current-GLB and assembled-candidate routes. Region IDs are subject-specific, never inherited from the
+   both the GLB and procedural routes. Region IDs are subject-specific, never inherited from the
    example profile; declare the required set in `extensions.requiredSemanticRegions` so omission is
    a hard validation error.
 3. Capture six passes per admitted view (`beauty`, `alpha-silhouette`, `semantic-id`, `depth`,
@@ -456,12 +465,11 @@ material recipes + hard-won failure patterns: `grimoire/build/geometry_patterns.
 
 ### Optional Python ↔ Three.js render bridge
 
-When Python is used to orchestrate editing renders, use it as a deterministic job/evidence layer
+When Python is requested for character rendering, use it as a deterministic job/evidence layer
 around the browser Three.js runtime: camera-batch manifests, source/output hashes, readiness and
 settle checks, screenshot persistence, masks, diagnostics, and comparison packaging. The target
-Three.js browser route remains the rendering authority. Do not substitute Blender or an offline rasterizer for browser capture. Exporting
-the assembled browser scene to GLB is the required editing deliverable; it does
-not replace procedural construction or browser review. Full routing, manifest fields, and failure rules:
+Three.js browser route remains the rendering authority. Do not silently replace the procedural
+TypeScript factory with Blender/VRM/GLB output. Full routing, manifest fields, and failure rules:
 `grimoire/build/python_threejs_render_bridge.md`.
 
 ### Standard character pipeline (merged 1.5 beta + alpha)

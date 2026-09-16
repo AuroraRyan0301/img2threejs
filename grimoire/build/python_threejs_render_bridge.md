@@ -21,8 +21,8 @@ export is not a substitute for a screenshot of the target Three.js route.
 
 ## GLB-mediated reference route
 
-For source-model editing, the input/current GLB is the retained model and preservation
-baseline. The candidate combines it with procedural edits. The required order is:
+When the user provides a GLB produced from an image, the GLB is an intermediate reference
+mesh, not the procedural output. The required order is:
 
 ```text
 image (optional provenance)
@@ -30,10 +30,10 @@ image (optional provenance)
         -> probe_glb.py + hash/provenance
         -> render the GLB through the target Three.js browser route
         -> reference baseline captures
-        -> derive an ObjectSculptSpec for the new/replacement part
-        -> generate TypeScript part and assemble into retained current GLB
+        -> derive a procedural ObjectSculptSpec
+        -> generate TypeScript geometry/material/rig
         -> render the procedural route with the same camera batch
-        -> compare preservation against current GLB; compare edit appearance against target RGB
+        -> compare procedural captures against GLB baseline captures
 ```
 
 Initialize this route with:
@@ -57,8 +57,7 @@ images with `render_bridge.py record-reference` semantics. Chrome DevTools MCP i
 provide the same mode switch and write to the same manifest fields. Only then may
 `render_bridge.py diagnose` compare the procedural hero against the baseline.
 
-In editing this paired route measures preservation against the current GLB; changed
-regions are judged against the supplied target RGB, not required to match their old state. If the original image is not retained,
+This route measures agreement with the intermediate GLB. If the original image is not retained,
 it does not prove agreement with the image that produced the GLB; hidden geometry, materials,
 and generation artifacts must be recorded as confidence/approximation notes.
 
