@@ -33,12 +33,39 @@ Supply genuinely measured anchors to attachment_anchor. Capture the same require
 turntable views. Existing host defects do not authorize modifying untouched parts.
 Record each applicable original gate; capture success alone is not gate success.
 
-The original browser render-profile schema has browser-specific constants and is
-not a valid Blender manifest. Use the adapter's truthful evidence receipt instead;
-do not impersonate browser authority. The source/current model is the preservation
-baseline. Without actual target diagnostic channels, mark paired target-channel
-comparisons unavailable. The original compare_region_passes CLI does not accept
-this adapter receipt directly: do not claim that integration is implemented. Retain
-output six-pass evidence, real region mapping and applicable image/geometry gates;
-missing required gate compatibility is a recorded limitation/partial result, not a
-waiver or a fabricated pass. No hidden GT geometry/passes may be used.
+## Paired-pass comparison bridge
+
+After capturing two states at the SAME camera/settings, convert their real EXR
+channels using `forge/stage4_review/prepare_blender_pass_pair.py`:
+
+```bash
+PYTHONPATH=/gs/fs/tga-koike-shanda4/yurh/img2threejs_capture_deps \
+/gs/fs/tga-koike-shanda4/yurh/miniconda3/envs/partflow/bin/python \
+  <skill-root>/forge/stage4_review/prepare_blender_pass_pair.py \
+  --reference <previous-capture>/evidence.json \
+  --candidate <candidate-capture>/evidence.json \
+  --out <pair-folder> --depth-near 0 --depth-far <shared-far>
+python3 <skill-root>/forge/stage4_review/compare_region_passes.py \
+  --manifest <pair-folder>/manifest.json --capture-id hero \
+  --out <pair-folder>/comparison.json
+```
+
+The converter requires numpy, Pillow and OpenEXR (the latter installed in the
+PYTHONPATH directory above). It validates source/capture hashes, camera settings
+and renderer identity. Depth uses one declared range for BOTH captures and fails
+on foreground clipping. Normal XYZ uses the same world Z-up encoding for both;
+ID colors share a joint region/material-name mapping. Data PNGs use raw byte
+codes without a color transfer; beauty PNGs are retained unchanged. EXR originals
+remain authoritative floating-point evidence. No GT channel is synthesized.
+
+The paired-pass-evidence.v1 manifest truthfully declares blender-kit authority;
+it is not mislabeled as the browser profile. The common region comparator now
+accepts this transport alongside the original browser transport, while using
+identical scoring functions. Missing passes, camera/encoding differences and
+corrupt PNG/profile hashes reject comparison. Material-ID similarity is the
+original encoded-image diagnostic, not a physical material-distance metric.
+
+Current-model/candidate pairs support preservation checks. Changed regions are
+not expected to match their previous state; use target RGB to judge the requested
+edit. Without supplied target channels, target depth/normal agreement is unknown.
+The adapter does not create withheld GT information or replace original build gates.

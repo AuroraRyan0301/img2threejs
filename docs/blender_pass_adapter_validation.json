@@ -1,0 +1,69 @@
+{
+  "identity": {
+    "beauty": {
+      "pixels": 16384,
+      "similarity": 1.0,
+      "meanAbsoluteError": 0.0
+    },
+    "alpha-silhouette": {
+      "intersection": 6633,
+      "union": 6633,
+      "iou": 1.0
+    },
+    "semantic-id": {
+      "pixels": 16384,
+      "exactMatch": 1.0
+    },
+    "depth": {
+      "pixels": 16384,
+      "similarity": 1.0,
+      "meanAbsoluteError": 0.0
+    },
+    "normal": {
+      "pixels": 16384,
+      "similarity": 1.0,
+      "meanAbsoluteError": 0.0
+    },
+    "roughness-material-id": {
+      "pixels": 16384,
+      "similarity": 1.0,
+      "meanAbsoluteError": 0.0
+    }
+  },
+  "changed": {
+    "beauty": {
+      "pixels": 16384,
+      "similarity": 0.98894,
+      "meanAbsoluteError": 2.8202
+    },
+    "alpha-silhouette": {
+      "intersection": 6533,
+      "union": 6633,
+      "iou": 0.984924
+    },
+    "semantic-id": {
+      "pixels": 16384,
+      "exactMatch": 0.942871
+    },
+    "depth": {
+      "pixels": 16384,
+      "similarity": 0.997943,
+      "meanAbsoluteError": 0.5246
+    },
+    "normal": {
+      "pixels": 16384,
+      "similarity": 0.982613,
+      "meanAbsoluteError": 4.4338
+    },
+    "roughness-material-id": {
+      "pixels": 16384,
+      "similarity": 0.999932,
+      "meanAbsoluteError": 0.0174
+    }
+  },
+  "reject_camera": "paired camera records differ or are missing",
+  "reject_encoding": "paired channel encodings differ or are missing",
+  "reject_hash": "pass hash mismatch: depth",
+  "reject_missing": "missing required pass: normal",
+  "legacy_scoring_unchanged": true
+}
