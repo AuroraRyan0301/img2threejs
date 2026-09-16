@@ -10,6 +10,7 @@ region scoring is unavailable.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import sys
 from pathlib import Path
@@ -92,8 +93,31 @@ def compare_capture(manifest_path: Path, capture_id: str) -> dict[str, Any]:
     if not isinstance(reference_passes, dict) or not isinstance(render_passes, dict):
         raise ValueError("capture is missing v2 pass records")
 
+    # Backend-neutral capture transport; scoring below remains unchanged.
+    backend = manifest.get("captureBackend", "browser-threejs")
+    if backend not in ("browser-threejs", "blender-kit"):
+        raise ValueError("unsupported capture backend")
+    if backend == "blender-kit":
+        if manifest.get("schemaVersion") != "paired-pass-evidence.v1":
+            raise ValueError("Blender capture requires paired-pass-evidence.v1")
+        if reference.get("encoding") != capture.get("encoding") or not capture.get("encoding"):
+            raise ValueError("paired channel encodings differ or are missing")
+        if reference.get("camera") != capture.get("camera") or not capture.get("camera"):
+            raise ValueError("paired camera records differ or are missing")
+        for records in (reference_passes, render_passes):
+            for pass_id in PASS_IDS:
+                record = records.get(pass_id, {})
+                if record.get("status") != "recorded":
+                    raise ValueError("missing required pass: " + pass_id)
+                file = _resolve(manifest_path, str(record["path"]))
+                if hashlib.sha256(file.read_bytes()).hexdigest() != record.get("sha256"):
+                    raise ValueError("pass hash mismatch: " + pass_id)
+
     profile_path = manifest.get("renderProfile", {}).get("path")
     profile: dict[str, Any] = {}
+    if profile_path and backend == "blender-kit":
+        if hashlib.sha256(_resolve(manifest_path, profile_path).read_bytes()).hexdigest() != manifest["renderProfile"].get("sha256"):
+            raise ValueError("profile hash mismatch")
     if profile_path:
         profile = json.loads(_resolve(manifest_path, profile_path).read_text(encoding="utf-8"))
     region_colors: dict[str, tuple[int, int, int]] = {}
@@ -140,7 +164,8 @@ def compare_capture(manifest_path: Path, capture_id: str) -> dict[str, Any]:
     return {
         "schemaVersion": 1,
         "captureId": capture_id,
-        "comparisonBasis": "browser-rendered-glb-vs-browser-rendered-procedural",
+        "comparisonBasis": ("browser-rendered-glb-vs-browser-rendered-procedural" if backend == "browser-threejs" else "blender-rendered-reference-vs-candidate"),
+        "captureBackend": backend,
         "passesCompared": sorted(results),
         "regionEvidence": "semantic-id-reference-pass" if semantic_masks else "unavailable",
         "results": results,
