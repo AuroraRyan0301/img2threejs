@@ -1,293 +1,485 @@
 ---
 name: img2threejs
-description: Build procedural Three.js parts from images, or edit an existing GLB through localized part operations, with staged specs, render feedback and bounded self-correction.
+description: Turn an object or character reference image into a quality-gated, animation-ready procedural Three.js model built in code. Use for image-to-3D reconstruction, detail-accurate object rebuilds, stylized/likeness-maximized human characters, sculpt specs, and staged code generation.
 license: Apache-2.0
-metadata:
-  upstream-version: 2.0.0
-  local-workflow: pxform-edit-v5-evidence
+version: 2.0.0
 ---
 
-# img2threejs — procedural construction and source-model editing
+# img2threejs — Image to procedural Three.js
 
-Select the task once. If given an existing model to edit, follow **Source-model
-editing** below. If asked to reconstruct a whole object from scratch, follow
-`docs/reconstruction_workflow.md` instead. Do not load the reconstruction workflow
-for a source-model editing task. Its whole-object no-copy, browser-runtime,
-animation and independent-factory requirements belong to reconstruction only.
-Both routes retain img2threejs's spec → staged build → visual review → correction
-process. Supporting documents provide geometry recipes and gate mechanics; task
-scope, renderer selection and chain termination are defined here for editing.
+Build the requested object, or new/replacement part when editing a source GLB, as a **code-only** procedural Three.js model,
+gated by a staged sculpting pipeline and an AI-vision self-correction loop. This is
+reconstruction-by-code, **not** photogrammetry, mesh extraction, or downloaded art packs. That
+promise governs how the model is *built* — it says nothing about which file formats it can
+subsequently be *exported* to; an explicitly-selected emission target (`--target <kind>`) is a
+terminal, whole-artifact transform of the already-built model, verified to its own stated limit,
+never a second way to build one.
 
-## Source-model editing: inputs and operation decision
+Agent-agnostic: works under Claude Code, Codex, or OpenCode. Wherever this doc says "agent
+vision" or "agent browser tool", use whatever the host provides — native image reading, a
+browser MCP (playwright/chrome-devtools), the project preview, or a user-supplied screenshot.
 
-Inputs: current GLB, text instruction, target image and supplied camera. For a
-chain, turn 1 starts from `input/source.glb`; turn k starts from the saved result
-of k−1. Never reset to a GT mesh. Read the current turn's text AND image yourself.
-Inspect the current model's nodes, geometry, materials and world transforms.
-Use semantic and visual evidence to decide add/remove/replace/retexture and the
-affected region; do not infer the operation from a dataset cell name or assume
-one node always equals one semantic part. Record the decision and affected nodes.
-`forge/stage1_intake/probe_glb.py` helps inspect structure; it does not identify
-parts visually for you. All intermediate files belong to the example directory.
+This file is the always-loaded router: it holds the order of operations and every hard rule as one
+line. The full contract behind each rule lives in the `grimoire/` or `docs/` file that rule names —
+read the named file at the moment you reach that stage, not before.
 
-Preserve every unaffected part's geometry, materials, names and world transforms.
-Copying retained source content is required, not forbidden. Construct only the
-new/replacement part with Three.js. Do not rebuild the host. Source inspection,
-GLB decoding, merging, exporting and compaction may use local Python/Node code;
-Blender is the renderer, not a second modeling backend. No asset retrieval,
-neural geometry generation or image-generation/editing model is allowed.
+## Editing an existing source model
 
-| Inferred operation | Execution route |
-|---|---|
-| remove | Identify and physically delete the target; structural verification; render if identification or removal is uncertain. No sculpt spec/factory/pass loop. |
-| add | Construct a new part through the img2threejs loop below, install it in the current model, and review in context. |
-| replace | Construct a replacement through that loop, remove only the old target, install the new part, and review in context. |
-| retexture | Use the replacement route in this experiment. Build a replacement part matching the target appearance and original intended shape/pose; run the same material and visual iteration. Do not shortcut to a one-line recolor and declare completion. Record semantic_op=retexture, execution_op=replace; the dataset label is unchanged. |
+When the task supplies a GLB to edit, the construction subject below is ONLY the
+new/replacement part. Retain all other source geometry, materials, node names and
+world transforms unchanged. Do not independently reconstruct the host. This is
+an editing scope selection, not a relaxation of the part-construction pipeline.
+Read `docs/edit_render_backend.md` for this branch's capture adapter; all build,
+review, camera iteration and gate requirements below otherwise remain shared.
 
-Source geometry may guide replacement dimensions and attachments; it is not a
-license to modify unrelated parts. For retexture, geometric drift is a defect to
-correct, not a requested edit. Preserve unrelated child attachments and their
-world transforms; do not silently discard them with a replaced parent.
+For every turn, read the text instruction AND target image; inspect the current
+model and infer the operation and affected parts yourself. Start from your own
+previous saved output (turn 1 starts from the supplied source). Do not reset to
+GT, use external assets or obtain hidden GT geometry/diagnostic channels.
 
-## Remove and replacement cleanup
+- Remove: physically delete the identified target and its exclusively owned data,
+  compact/remap GLB references, reload and verify preservation of surviving parts.
+  Do not merely hide or unlink scene.nodes. Render if uncertain; no construction
+  spec or factory is required when no new part is built.
+- Add/replace: apply the COMPLETE original assessment/spec/factory/locked-pass/
+  gate/review/correction workflow below to the new part. Install it in the retained
+  source and inspect both part geometry and assembly. Preserve unrelated children.
+- Retexture: use the same replacement construction and iterative review route;
+  preserve intended shape/pose while matching the new appearance. Record
+  semantic_op=retexture, execution_op=replace; do not change the dataset label.
 
-Delete targeted nodes and all their scene/parent references from the exported
-GLB. Merely unlinking `scene.nodes`, hiding or zero-scaling is insufficient.
-Garbage-collect meshes, accessors, bufferViews, materials, textures and images
-owned exclusively by removed content. Retain shared resources, repack BIN and
-remap references consistently, including skins/animations if present. When only
-part of a mesh is targeted, preserve its unrelated geometry. Reload the output
-and verify removed content is absent and surviving decoded content is unchanged.
-File hashes/array indices may change during compaction; surviving data may not.
-For an unambiguous remove, this structural check can finish the turn. If uncertain,
-render once, inspect, and correct the deletion; do not run new-part construction.
+Keep one construction state/spec per edited part/turn. The source/current GLB is
+an unchanged-region baseline, not the target for the requested change. Collect
+six-pass evidence and real semantic mappings using the branch adapter; compare
+unchanged regions against your own previous model, requested appearance against
+supplied target RGB. Without target diagnostic channels, paired target-channel
+comparison is unavailable, not a pass. Never fabricate channels or gate evidence.
 
-## Add / replace / retexture: the img2threejs construction loop
+Retain original camera-first iteration and freely chosen diagnostic/close-up views.
+When an evaluation camera is supplied, preserve it separately and return to it
+before accepting a constructed turn. Do not substitute a fitted camera for final
+scoring. Run the same gates and bounded correction budgets in either backend.
+Record any missing required evidence as partial. In unattended chains a hard stop
+ends the current construction attempt: save the best valid candidate or explicitly
+retain the prior state and continue; if no valid state exists mark dependent turns
+skipped. Do not reset budgets. Interactive tasks retain request-input behavior.
 
-Use a separate `work/turnNN/` state/spec/review history for each constructed part.
-Run forge scripts from the skill root with absolute example-local file paths.
-Read the named supporting documents at the relevant stage, not the entire corpus.
-A spec describes the edited part; the host is immutable assembly context.
+Export the complete edited scene as output/turnNN.glb, in source coordinates.
+Preserve source input/ref files and keep intermediate artifacts inside the example.
+GLB serialization/merging is authorized plumbing; new parts remain procedural
+Three.js code. Retained source content is not subject to the no-copy reconstruction
+rule. Animation/UI requirements apply to newly built parts when the task requires
+those capabilities, not as permission to alter the untouched host.
 
-1. **Observe and assess.** Follow `grimoire/intake/image_analysis.md` and
-   `grimoire/intake/quality_contract.md`: macro/meso/micro shape, materials,
-   installation face, scale, orientation, contact and visible identity features.
-   Use `forge/stage1_intake/probe_image.py`, then
-   `forge/stage2_spec/new_pre_spec_assessment.py` and the skill's local spec search
-   (`grimoire/intake/local_spec_search.md`). This is retrieval of modeling
-   knowledge within the skill, not retrieval of assets or other benchmark cases.
-   Crop the target part when useful; retain the original full target for context.
-2. **Spec and state.** Use `forge/stage2_spec/new_sculpt_spec.py` with the assessment;
-   fill actual component hierarchy, topology, features, PBR materials, pivots and
-   attachment anchors. Follow `grimoire/intake/surface_topology.md` and
-   `grimoire/build/geometry_patterns.md`; a complex shape is not automatically a
-   box. Validate with `forge/stage2_spec/validate_sculpt_spec.py`, including
-   `--strict-quality`. Initialize with `forge/state.py init --state <state.json>
-   --reference <part-reference.png> --profile generic --spec <spec.json>` (use a
-   subject-specific profile only for the part actually being constructed).
-   Call `forge/next.py --state <state.json> <spec.json>` on start/resume and before
-   every correction. Keep evidence for completed steps and explicit reasons for
-   non-applicable steps; never mark a failed mandatory gate passed.
-3. **Build in locked passes.** Use `forge/stage3_build/orchestrate_passes.py status`
-   and `forge/stage3_build/generate_threejs_factory.py` for the part. Preserve the
-   skill's blockout → structure → form → material → lighting → interaction →
-   optimization order and its pass locks. Lighting here means inspecting the
-   material under fixed GT illumination, not changing that illumination. Static
-   GLB output needs no invented animation/UI. Mark genuinely non-applicable
-   interaction/rig steps with reasons where supported, not fabricated evidence.
-   Use `refine-spec` for wrong intent/spec, `refine-code` for faulty implementation;
-   carry valid code refinements back into the spec before regeneration.
-4. **Export and assemble every reviewed candidate.** Instantiate the generated
-   Three.js part, export its geometry/materials as GLB, merge it into the current
-   scene at the inferred support/contact frame, and reload the saved candidate.
-   Use standard Three.js GLTFExporter or equivalent GLB serialization; retain
-   transforms, normals/winding, UVs and material bindings. The factory is the
-   construction implementation; the assembled GLB is the review artifact.
-   Export the *world-transformed constructed mesh* to geometry JSON when a gate
-   needs it, using that gate's actual input schema. No browser URL is necessary.
-5. **Render, diagnose, inspect.** Use the renderer below. Review the assembled
-   scene against the full target AND the part's visible region, not just a part
-   floating in isolation. Compare identically cropped reference/render regions
-   when the part is small; record the crop coordinates. Use actual saved images:
-   `forge/stage4_review/diagnose_render.py --reference <ref.png> --render <png>
-   --spec <spec.json> --pass-id <pass> --in-place`, then
-   `forge/stage3_build/orchestrate_passes.py check <spec.json> --pass-id <pass>`.
-   Read `grimoire/review/gates_reference.md` and
-   `grimoire/review/self_correction.md` for applicable gate mechanics. Inspect
-   geometry, winding, symmetry, scale, support and attachment using
-   `self_intersection.py` and `attachment_anchor.py` with measured constructed
-   geometry/anchors. Intentional inter-part contact is not mesh self-intersection.
-   For non-planar new parts also render diagnostic side views and use
-   `diagnose_render_multi_angle.py`; these test geometry, not unseen-GT similarity.
-   `turntable_gate.py` accepts Blender PNGs for 0/90/180/270 diagnostic views.
-   Apply character/hair/rig gates only if that edited part actually needs them.
-6. **Compare and record judgment.** Use
-   `forge/stage4_review/make_comparison_sheet.py --reference <ref.png> --render
-   <png> --out <cmp.png> --json`, then LOOK at the images. Use
-   `forge/stage4_review/append_review.py` with pass, fidelity, action, summary,
-   `--render-screenshot <Blender PNG>`, comparison image, feature/layer scores and
-   `--in-place`. The screenshot field accepts the PNG; it does not require a
-   browser. Whole-object similarity does not prove the requested edit succeeded.
-   Diagnose the cause using the original camera-first correction order below;
-   correct one group at a time,
-   export/assemble/render again, sync with `orchestrate_passes.py sync`, and run
-   `forge/next.py` again. Camera corrections improve observation and projection
-   matching; placement corrections still change the edited part, not the host.
-7. **Finish the turn.** A pass requires actual evidence, not file existence. Run
-   `check_part_coverage.py` for the constructed part where applicable; verify
-   source preservation and physical removal separately on the assembled output.
-   Save full `output/turnNN.glb`, notes and review evidence before proceeding to
-   the next instruction. Do not generate an entire chain without per-turn review.
+## Canonical shared checkout
 
-Material work retains img2threejs's `analyze_texture.py`, `extract_pbr_evidence.py`
-and material review tools as applicable. Read `grimoire/build/threejs_texture_reference.md`.
-Supplied image crops and deterministic texture processing are permitted; generated
-image models are not. If reference projection is used, follow the skill's camera
-matching and de-lighting/UV rules. Initialize from the supplied camera; record
-any fitted review-camera changes separately from the immutable evaluation camera. Do not modify the
-source's unrelated textures. A missing required channel is unevaluated, not pass;
-the six-channel evidence contract below is required for constructed-part review.
-A clickable/explodable whole-object factory is not required for static GLB editing.
-
-## GT Blender rendering bridge
-
-Executable: `/gs/fs/tga-koike-shanda4/yurh/blender-4.2.18-linux-x64/blender`
-Script: `/gs/fs/tga-koike-shanda4/yurh/blender_kit/scripts/render.py`
-
-Invoke `<executable> -b -noaudio -P <script> -- --manifest <jobs.jsonl>` with
-`CUDA_VISIBLE_DEVICES` set as assigned. For a fixed-view review job, use:
-`scene="mesh"`, absolute `mesh`, `material="file_embedded"`, `normalize="none"`,
-`source_frame="y_up"`, `frames=1`, `res=420`, `samples=32`, absolute `out_dir`.
-Copy `frame_center`, `frame_diag`, `start_az`, `elevation`, `distance` unchanged from
-`ref/camera.json`'s `frame`. Keep GT lighting defaults and inspect `f0000.png`.
-These parameters define the fixed comparison/evaluation job only. Review-camera
-jobs may reframe, orbit, zoom and change the look-at center as described below.
-Save their parameters and images separately; do not overwrite ref/camera.json. Blender PNGs
-feed the existing forge diagnostic/comparison/review tools directly. Use native
-agent image reading for judgment. Do not install/search for a browser or build an
-alternative rasterizer. Do not modify renderer or forge code during a trial.
-
-## Required evidence: six passes, semantic mapping, multi-view and meshes
-
-Upstream status: the GLB-mediated v2 fidelity track requires all six passes once
-that track is selected; semantic-ID absence blocks per-region comparison claims.
-The construction workflow also requires off-axis/turntable, attachment and
-self-intersection evidence. Here retain these checks for add/replace/retexture;
-remove remains the lightweight physical-deletion route. Do not run independent
-whole-object reconstruction merely to collect evidence.
-
-Use `forge/stage4_review/capture_blender_edit.py` as the authorized capture bridge:
+Keep one checkout of this repository and let every host enter it through a symlink, so Claude and
+Codex execute the same code instead of drifting apart:
 
 ```text
-<Blender executable> -b -P <skill-root>/forge/stage4_review/capture_blender_edit.py --
-  --job <absolute single-job.json> --regions <absolute regions.json>
+~/.claude/skills/img2threejs -> <your checkout>
+~/.codex/skills/img2threejs  -> <your checkout>
 ```
 
-The single job uses the same fields as the GT renderer manifest. The adapter calls
-the unchanged GT renderer, retains embedded materials and camera settings, and
-adds compositor outputs; it does not construct or modify source geometry.
-Author a semantic region map from the text/image and model inspection:
-`{"regions":[{"id":"barrel","index":1,"objects":["barrel_body","barrel_hoop"]}]}`.
-Names must match imported mesh objects; every mesh needs an explicit mapping.
-Several objects can share a region. Indices must be unique positive integers.
-The adapter fails on unmapped or missing objects. An ID is not proof of meaning:
-verify that its named region really covers the intended part. Existing known
-regions should keep their IDs across before/after captures. Do not fabricate
-human/anatomical labels for anonymous components.
+## When To Use
 
-For every accepted construction pass's reference/match view and required diagnostic
-views, capture the saved assembled candidate with this bridge. It writes:
-- `f0000.png`: normal GT-renderer beauty image for existing PNG review tools.
-- `channels/0001.exr`: beauty, alpha-silhouette, semantic-id, depth, normal and
-  roughness-material-id, at the SAME camera and model state. The last channel is
-  explicitly the MATERIAL INDEX option, not a measured roughness value. Raw
-  normals are Blender world-space Z-up; raw depth uses Blender scene units.
-- `regions.json`: region/object and material-index mapping.
-- `meshes.json`: evaluated world-space vertices and triangle indices converted
-  back to source Y-up, compatible with `self_intersection.py`. This replaces the
-  browser mesh export transport, not its geometric evidence requirement.
-- `evidence.json`: renderer/model hashes, camera job, channel encodings, file hashes
-  and truthful `authority=blender_kit`. Never label these as browser captures.
+The user attaches/points to an object image and wants a procedural Three.js model, a
+reconstruction/animation/destruction plan, a sculpt spec, or code. Also for material studies,
+action-ready props, game objects, botanical/mechanical parts, and stylized reconstructions.
 
-Use the existing `diagnose_render.py`, comparison-sheet and `append_review.py`
-loop on the PNGs. Run `self_intersection.py` on constructed meshes (retain the
-full export as provenance); do not repair unrelated pre-existing host defects.
-Use real measured world-space anchors for `attachment_anchor.py`; geometry export
-alone does not establish anchor correctness. Retain `turntable_gate.py` with
-0/90/180/270 captures and `diagnose_render_multi_angle.py` on applicable non-planar
-parts. Review the added part both as geometry and in the assembled scene.
-Missing, stale or malformed required evidence blocks acceptance; record errors
-as unevaluated/partial, not pass. A successful capture is not a successful gate.
+## Core Promise
 
-The agent receives target RGB only. Never load hidden GT geometry/passes to create
-paired target evidence. Six output channels support self-checks and comparisons
-against the agent's own prior model. They do not supply unavailable target depth,
-normals or semantic labels. Upstream `compare_region_passes.py` requires genuine
-paired captures and a browser-v2 manifest: do not feed this Blender receipt into
-it or fake a compatible authority. Mark paired target-channel comparison
-`not_applicable: target RGB only`; still perform RGB/visual/geometry checks and
-collect the required output passes. If actual paired reference passes are later
-explicitly supplied, their channel encodings and renderer must first be matched.
+Sculpt from a photo, in order — never one-shot a mesh:
+1. **Run `python3 forge/next.py --state .img2threejs/state.json [<spec>]` first**, at every start,
+   resume, and before every correction iteration. It reports the ordered checklist, exact next
+   command, evidence status, and bounded correction-loop status; it never replaces the spec/pass
+   gates. Obey a hard stop; never continue from memory.
+2. **Validate** the image is a suitable 3D target (`grimoire/intake/validation_rubric.md`).
+3. **Assess** object class + complexity, then write a `qualityContract` before any code.
+4. **Spec** it: component hierarchy, materials, lighting, pivots, sockets, action anchors.
+5. **Build pass-by-pass** from blockout → structure → form → material → lighting → interaction → optimization.
+6. **Verify** each pass with a screenshot compared against the reference; fail a pass if an
+   identity-defining feature is wrong even when the global score looks fine.
 
-## Camera iteration: the original img2threejs feedback loop
+State explicitly when output is approximate/stylized/low-poly. A single image cannot reveal
+hidden sides or guarantee exact geometry — say so instead of faking confidence.
 
-Use `grimoire/feedback/render_capture.md` and
-`grimoire/review/self_correction.md` for camera matching, viewpoint selection and
-review decisions. Retain their camera-iteration behavior; only the image capture
-backend changes from browser screenshots to Blender PNGs. Review cameras are
-editable, not locked to the benchmark camera.
+## Mandatory Local State Gate
 
-Start with the supplied camera as a known match-view initialization. Before
-judging geometry, inspect projection, framing, apparent scale, occlusion and
-view direction. If the review is too close/far, poorly framed or from the wrong
-angle, choose `refine-code` for the camera first, render again and reassess.
-Use the skill's match-view/reference framing guidance and camera-pose fitting
-when needed; do not force a known correct supplied camera to fit an arbitrary
-occupancy target. A camera change is recorded evidence, not a geometry repair.
+Conversation context is disposable; `.img2threejs/state.json` is the local checklist authority.
+Initialize once per reconstruction or constructed editing part, then gate every construction step through it:
 
-Retain the correction order `camera → silhouette → face → clothing → accessory
-→ materials → lighting`, omitting only categories not present in the edited part.
-Installation errors are corrected in the corresponding geometry/accessory step.
-Select front, side, rear, top, three-quarter and close-up views freely; orbit,
-zoom and retarget to expose the shape, attachment face, scale, symmetry, contact
-and occluded geometry. For non-planar parts retain the original multi-angle and
-turntable checks. Inspect both the isolated constructed part when helpful and
-its installation in the full current scene; an isolated view cannot prove placement.
-After each correction recapture the relevant views, run the applicable existing
-forge diagnostics, write `append_review.py` evidence and sync/next state normally.
-Camera corrections participate in the same correction history and budget; they
-are not an unbounded separate search. Additional views have no unseen GT labels.
+```bash
+python3 forge/state.py init --state .img2threejs/state.json --reference <img> --profile <generic|character|installed-domain> --spec object-sculpt-spec.json
+python3 forge/next.py --state .img2threejs/state.json [object-sculpt-spec.json]
+python3 forge/state.py mark <step-id> --state .img2threejs/state.json --evidence <path>
+```
 
-Maintain named camera jobs, their exact parameters and image hashes per pass.
-A crop comparison uses the identical crop on reference and render; a changed
-camera/view is not directly pixel-comparable to the unchanged target image.
-Return to the supplied fixed comparison camera after geometry/placement changes
-and before accepting a constructed turn. This independently checks that improvement
-persists in the benchmark view. Final scoring always uses the untouched supplied
-camera; neither fitted review cameras nor close-ups replace it.
+- `next.py` prints the current step, pass, incomplete mandatory steps, exact next command, and
+  `loop/max`. Exit code 3 or `status=stopped` is a hard stop: report the reason and request input.
+  Never bypass it by reconstructing progress from chat history.
+- Every completed step needs evidence; mark a non-applicable step `skipped` only with `--reason` —
+  silent omission is forbidden. Loop counts derive from `reviewHistory` actions
+  (`refine-spec`/`refine-code`), not agent memory. Defaults: 3 corrections per pass, 6 total.
+- A domain profile's steps, gates and reference material come from the **registry**: in-repo
+  modules (`character`) and installed plugins (`cs2`, `animated-character` from plugin-character) register identically, and
+  `forge/state.py init` names what is available. A profile adds mandatory gates without changing
+  the core order -- a domain plugin typically requires an authoritative classification, an intake
+  manifest, and a machine-readable domain review before AI review; `character` requires the
+  character contracts and landmark evidence; `animated-character` (requires the installed plugin-character) adds all of `character` plus the
+  nine Stage R steps (`grimoire/readiness/animation_contract.md`). Pick it whenever the rig must
+  MOVE — on `character` the Stage R gates are absent and the build completes without ever running
+  them, which is how animation used to ship broken. Its order is load-bearing: repair the mesh,
+  freeze it, bind additively, then verify parity. Every profile records suitability, projection
+  applicability, and
+  material-evidence applicability. The state file is a resumability index, not visual evidence:
+  renders, specs, review history, and deterministic gates remain the authoritative artifacts.
 
-Use the same renderer with different manifest camera fields for review views:
-`start_az` / `elevation` control orbit, `distance` controls viewing distance and
-`frame_center` / `frame_diag` control the review framing. Keep `normalize=none`
-and source coordinates unchanged. Use actual supported renderer options for any
-other camera parameter; do not silently modify render.py. Store jobs under
-`work/turnNN/pass-name/cameras/<view-name>.jsonl` and images under matching
-view directories. Blender remains the image source for the original img2threejs
-render → diagnose → compare → refine → recapture loop.
+## Required Inputs
 
-## Bounded correction and chain outcome
+- one image path / screenshot / URL / attached image (if missing or unreadable, ask)
+- intended use: prop, game object, hero render, playable/destructible object, animation rig
+  (default: real-time browser prop with interactive performance)
+- when a domain plugin serves the item, whatever authoritative record its intake step requires, or
+  an explicit request for the user/vision provider to supply one; heuristic detection alone is not
+  enough to select a geometry adapter
 
-Keep img2threejs's default limits: three corrections per pass, six per constructed
-part; honor earlier plateau/error stops. A stop ends that part's construction
-attempt, not permission to bypass a gate. In an unattended benchmark, record
-`partial` and the unmet gates; do not ask for user input or claim `done`. Save the
-best valid assembled candidate, or retain the previous valid state if no candidate
-is safe to serialize; explicitly record that fallback. Continue the next turn
-from that saved state. If no valid current model exists, mark remaining turns
-`skipped` with the dependency reason. Do not restart the state to reset its budget.
-Keep failed attempts and replay provenance. If revising an earlier turn, replay
-and revalidate dependent turns; never leave stale outputs/renders downstream.
+## The Loop (scripts do enforcement; agent vision does judgment)
 
-Keep actual command timestamps and notes per turn; host harness execution/usage
-records are authoritative. Unknown usage stays unknown. Final output: one line
-per turn (done/partial/skipped with reason), followed by written GLB paths.
+Run scripts from the skill root (`forge/...`). Pure Python 3.10+ stdlib, no pip installs.
+Full flags: `grimoire/scripts.md`. Never let a script *score* visuals — that is the agent's job.
+
+1. **Analyze the image first** (agent vision, before any script): work the layered observation
+   protocol in `grimoire/intake/image_analysis.md` — identify/classify, decompose macro→meso→micro,
+   map part relationships, name materials in PBR terms, list identity-defining features, and flag
+   what the single view hides. Observation before inference; controlled 3D vocabulary; 3D
+   object-space not 2D image-space. Then probe local images:
+   `forge/stage1_intake/probe_image.py <image>` (metadata only, not a visual check).
+1a. **Local Spec Search** — after image analysis, before writing or refining a spec, pull local
+    domain evidence (anatomy/PBR/wear/geometry/runtime/physics) rather than inventing it:
+    `python3 forge/stage2_spec/new_pre_spec_assessment.py "Name" --image <img> --out assessment.json`
+    (auto-runs BM25 over the `core_3d` collection, or the collection a declared domain contributes
+    -- the collection is NEVER guessed from the target name; writes a `localSpecSearch` bundle that
+    `new_sculpt_spec.py --assessment` carries into the spec). Full query-expansion recipe
+    (bilingual terms, focused `search_specs.py` retrieval, cache rules):
+    `grimoire/intake/local_spec_search.md`. MUST read it before retrying an incomplete or
+    domain-specific query.
+1b. **Domain intake** — when a domain plugin serves the item, complete its intake steps before
+    pre-spec authoring (admission, heuristic signal, classification, family/route resolution).
+    MUST read the contract its step names, completely, before creating the manifest or
+    running pre-spec assessment.
+1c. **Optional fidelity evidence adapters** — only when they improve an observed weak point; the
+    stdlib core remains authoritative. Thin/complex masks → local SAM2; character face/pose →
+    MediaPipe; weak front/back cues → Depth Anything V2
+    (`forge/stage1_intake/run_vision_adapter.py <segment|landmarks|depth> ...`; every adapter emits
+    provenance; monocular depth is relative only). **MCP-only scene mutations never count as
+    implementation** — write the proven change back to the spec or TypeScript, rebuild, recapture.
+    Full adapter + MCP routing and authority boundaries:
+    `docs/integrations/reference_fidelity_tooling.md`.
+2. **Pre-Spec Assessment Gate** — classify + score complexity + write the quality contract:
+   `forge/stage2_spec/new_pre_spec_assessment.py "Name" --image <img> --complexity <simple|moderate|complex|ultra-complex> --out assessment.json`. Rules: `grimoire/intake/quality_contract.md`.
+   Set `objectClass.primaryDomain` (`object` | `character` | `hybrid`) and fill the seeded
+   `detailInventory` (its `targetMinDetails` scales with complexity). A domain plugin may **raise**
+   these floors through its augmentation -- the merge clamps, so a plugin can never lower one
+   (a skin's finish/wear/hardware IS the item, so such a domain is held to the
+   top fidelity bar. Author procedural GEOMETRY but route the FINISH through the projection path in
+   step 2c — a procedural finish for a patterned skin (Doppler/Gamma/Marble/Fade) reads visibly
+   wrong against the reference. A domain plugin ships its own finish rulebook and texture-acquisition
+   guide; read what its checklist steps name.
+2b. **Detail inventory** (do not skip for detailed subjects) — scan zones and enumerate every
+   identity-defining small detail (gloss, bevel, fasteners, linework, contours, stains):
+   `forge/stage1_intake/build_detail_inventory.py <image> --mode grid-3x3 --out-dir <dir> --out di.json`.
+   Each detail MUST map to a `component.localFeatures` or `material.localOverrides` entry — never
+   prose only. Taxonomy + 3D-term recipes: `grimoire/intake/detail_inventory.md`.
+2c. **Projection-first fidelity** (characters AND reference-matched surfaces — painted skins,
+   decals, painted patterns) — when the goal is matching a specific reference's surface, put the
+   photo's own pixels on the mesh instead of approximating them procedurally. This is the single
+   biggest fidelity lever; a procedural material for a patterned surface is the #1 reconstruction
+   failure. Recipe (`grimoire/character/likeness_maximization.md` — its two levers generalize past
+   characters): solve the camera (`stage1_intake/solve_camera_pose.py` → `referenceCamera`),
+   **de-light** the reference (`stage1_intake/delight_albedo.py`, hard requirement — de-lighting is
+   what makes projection safe), then project the de-lit crop and bake it into UVs
+   (`stage3_build/bake_projected_texture.py --mesh-id <id>`). For a painted skin the projected de-lit
+   crop IS the finish — no procedural Doppler material. For characters, first capture landmarks
+   (`stage1_intake/extract_landmarks.py --out anatomy.json`), fill `preSpecAssessment.anatomy`,
+   route `grimoire/character/reconstruction.md`. A single view cannot show hidden sides — report
+   per-region confidence and request more views when it matters.
+   Character sub-routes, in order — decide what parts exist before shaping any, and shape the head
+   before the hair that sits on it:
+   - **Parts** — `grimoire/character/structure_decomposition.md`
+   - **Head** — `grimoire/character/head_construction.md` (what the likeness gate reads against)
+   - **Hair** — `grimoire/character/stylized_hair_threejs.md` + parameter contract in
+     `grimoire/character/threejs_hair_parameter_contract.json`. Lock topology only after the
+     silhouette review passes: material tuning cannot repair wrong lock topology.
+2d. **Reference-free humanoid** — a generic figure with no reference image has nothing to measure,
+   so fill anatomy from public canon:
+   `forge/stage2_spec/humanoid_proportions.py <spec> --style-heads 8 --in-place`. It writes
+   `anatomy.source: "canon-table"` so canon is never mistaken for measurement, refuses to run when
+   the spec names a reference image, and names anything the corpus does not supply rather than
+   interpolating it.
+3. Author the spec from the assessment:
+   `forge/stage2_spec/new_sculpt_spec.py "Name" --image <img> --assessment assessment.json --augmentation spec-augmentation.json --domain <profile> --out object-sculpt-spec.json` (the checklist step carries the resolved flags).
+   Replace generic starter `featureReviewTargets` with the object's real identity-defining
+   systems (≤5 critical, ≤3 important per pass); for characters add `anatomy-proportion`,
+   `face-landmark-placement`, `pose-silhouette`, `outfit-and-palette`. Use 3D-graphics terms only
+   (`grimoire/glossary/3d_vocabulary.md`), never "nice/smooth/shiny". Classify every component's
+   `topologyClass`/`topologyRationale` per `grimoire/intake/surface_topology.md` before picking a
+   `primitive` — this is what prevents a continuous organic form from being picked as a box.
+4. When material fidelity matters and a source image exists, analyze each material's **finish** then
+   extract reference PBR evidence, both per crop (verify the crop is on the part you think it is):
+   - `forge/stage1_intake/analyze_texture.py <crop> --spec spec.json --material-id <id> --in-place`
+     classifies the finish, extracts the gradient palette, and writes doc-grounded
+     MeshPhysicalMaterial scalars onto the material. Recipes + Three.js texture/PBR rules:
+     `grimoire/build/threejs_texture_reference.md`. Rule of thumb: **solid albedo for flat paint,
+     real reference crop for patterned finishes**.
+   - `forge/stage1_intake/extract_pbr_evidence.py <crop> --out-dir <dir> --material-id <id> --target-threshold 0.7`.
+     Confidence < 0.7 is a stop/refine-input signal, not a pass. It is inference, not inverse rendering.
+   - For multiple named regions: `forge/stage1_intake/material_region_analysis.py --manifest regions.json --out-dir material-evidence --out material-analysis.json`,
+     resolve each assignment from `docs/materials/material-reference.json`, wire it in with
+     `forge/stage2_spec/apply_material_analysis.py`.
+   - Emit the controlled material camera/crop contract (`forge/stage4_review/material_views.py`),
+     compare visible-footprint crops (`material_comparator.py`), apply only bounded material-scoped
+     corrections (`material_feedback.py`), and record the blocking result (`material_gate.py`).
+5. Validate, then strict-validate before generating code:
+   `forge/stage2_spec/validate_sculpt_spec.py object-sculpt-spec.json` then `--strict-quality`.
+   Strict blocks shallow specs (a complex object with one root, no repetition systems, no
+   local overrides, no micro groups is NOT implementation-ready even if JSON validates).
+6. **Locked build passes** — only touch the currently unlocked pass:
+   `forge/stage3_build/orchestrate_passes.py status object-sculpt-spec.json`
+   `forge/stage3_build/generate_threejs_factory.py object-sculpt-spec.json --out src/createObjectModel.ts`
+   The generator is fail-closed: `strict-quality` must pass before it writes any factory, and a
+   future `--pass-id` fails until prior passes are reviewed `continue`. If blocked, preserve the
+   `BLOCKED` artifact and refine the subject-specific spec; do not substitute a generic template.
+   The local state adds `--force` only for a new pass or `refine-spec`; `refine-code` edits the
+   current artifact without regenerating it. Before overwriting, carry valid hand refinement back
+   into the spec; generated code must not be the only copy of reconstruction decisions.
+6a. **Hitting a triangle budget.** `performanceBudget.targetTriangles` selects a tessellation tier
+   for every primitive with segment counts (low ≤6k, standard ≤60k, else hero) and caps
+   implicit-surface sampling grids. Where a tier is not precise enough, add
+   `geometryDescriptor.decimate: {"targetRatio": 0.4}` to that component — a quadric collapse in
+   the generated factory, run **before** skin binding so weights are computed on surviving
+   vertices. It keeps `position` only (normals recomputed), so it is refused on an
+   authored/unwrapped `uvStrategy`. Offline LOD tiers:
+   `forge/stage3_build/decimate.py <mesh.json> --ratio <r> --json`.
+7. Render the current pass in a browser/preview, capture a screenshot at a review viewpoint.
+7a. **Off-axis and placement gates — a single review viewpoint is not evidence about the model.**
+   Capture a turntable, not one frame, and run all three; each catches a defect class the older
+   gates pass by construction (a hole through a skull, a hat at hip height and a floating charm all
+   survived eight front-only review rounds):
+   `forge/stage4_review/turntable_gate.py --capture 0=front.png --capture 90=right.png --capture 180=rear.png --capture 270=left.png --json`
+   `node runtime/scripts/export_mesh_geometry.mjs --url <preview> --out meshes.json` then
+   `forge/stage4_review/self_intersection.py meshes.json --json`
+   `forge/stage4_review/attachment_anchor.py object-sculpt-spec.json --measured measured.json --json`
+   All three exit `0` clean / `1` gate failure / `2` error. A failure blocks `continue` even when
+   the global fidelity score passes. Read `sampledVertexCount` / `unmeasuredAttachments` /
+   `missingAzimuths` before believing a clean verdict: each names what the gate did not look at.
+8. **Run deterministic gates before AI vision.** MUST read
+   `grimoire/review/gates_reference.md` and `grimoire/review/self_correction.md` completely. Run
+   `forge/stage4_review/diagnose_render.py` and record the passing Tier 1 result with
+   `--spec object-sculpt-spec.json --pass-id <pass> --in-place`; for non-planar forms also run
+   `forge/stage4_review/diagnose_render_multi_angle.py` with the fixed view and at least two
+   meaningful orbit views. Then run
+   `forge/stage3_build/orchestrate_passes.py check object-sculpt-spec.json --pass-id <pass>`.
+9. Package one side-by-side sheet, then inspect it with agent vision:
+   `forge/stage4_review/make_comparison_sheet.py --reference <img> --render <shot> --out cmp.png --json`.
+10. Record the review (overall + per-layer + per-feature scores + decision):
+    `forge/stage4_review/append_review.py object-sculpt-spec.json --pass-id <pass> --fidelity <0-1> --action <continue|refine-spec|refine-code|request-input|stop> --summary "..." --render-screenshot <shot> --comparison-image cmp.png --ai-vision-score <0-1> --layer-scores-json '{...}' --feature-reviews-json <f.json> --in-place`.
+    When a domain plugin contributes a review gate, produce its versioned report first with
+    the command that plugin's review step names, then attach it with
+    `--domain-review-json <report>.json --review-scene-json <the plugin's scene fixture>`. The
+    checklist step carries the resolved paths.
+    A failed family, painted-region, projection-coverage, critical-detail, or orbit gate blocks
+    `continue` even when the global score passes. See the plugin's own review-gate documentation.
+11. Sync pipeline state after manual review edits, record checklist evidence, then re-run the local
+    state gate before another correction or pass:
+    `forge/stage3_build/orchestrate_passes.py sync object-sculpt-spec.json --in-place`
+    `python3 forge/next.py --state .img2threejs/state.json object-sculpt-spec.json`.
+12. Before declaring completion, run
+    `forge/stage4_review/check_part_coverage.py --spec object-sculpt-spec.json --manifest parts.json`
+    and verify the action-ready hierarchy. Mark `part-coverage` and `action-ready` only with evidence.
+
+## GLB-mediated v2 render-fidelity track (1.5 alpha)
+
+For source-model editing use the same capture/profile/gate mechanics below on the
+current and assembled candidate models, with the baseline semantics defined in
+"Editing an existing source model". Backend-specific capture transport and evidence
+encoding are defined in `docs/edit_render_backend.md`.
+
+For whole-object reconstruction (not source-model editing), when the user supplies
+a GLB as an intermediate reference, the browser-rendered GLB is the
+structural and visual baseline for an independently authored procedural factory. The raw GLB is
+never pixel evidence and its topology/materials are never copied into the factory. Before any
+factory edit — full contract in `grimoire/build/python_threejs_render_bridge.md`, machine-readable
+schema in `docs/specs/render-profile.v2.schema.json` (+ example; fail-closed validation):
+
+1. `forge/stage1_intake/probe_glb.py` first. A merged one-node/one-mesh asset is `insufficient`
+   for semantic labels; request a multipart GLB or a browser semantic-ID pass before claiming
+   exact regions.
+2. Author ONE shared `render-profile.v2` (`forge/stage4_review/validate_render_profile.py`) used by
+   both the GLB and procedural routes. Region IDs are subject-specific, never inherited from the
+   example profile; declare the required set in `extensions.requiredSemanticRegions` so omission is
+   a hard validation error.
+3. Capture six passes per admitted view (`beauty`, `alpha-silhouette`, `semantic-id`, `depth`,
+   `normal`, `roughness-material-id`); score with `forge/stage4_review/compare_region_passes.py`.
+   Missing semantic-ID data blocks per-region confidence rather than falling back to whole-image
+   scores.
+4. Use region-specific continuous geometry — never replace a face/head volume, cloth shell, or tail
+   with floating primitives when the region's silhouette requires a continuous surface.
+5. Run ONE correction group per loop, in order: `camera → silhouette → face → clothing → accessory
+   → materials → lighting`; recapture the full pass set after each group and record the changed
+   group, hashes and score. Never combine groups when diagnosing improvement.
+
+## Gates (do not skip)
+
+Before any visual review or `continue` decision, MUST read the full gate-by-gate contract in
+`grimoire/review/gates_reference.md` (Divine Eye, VLM rescue, multi-angle, interior difference,
+chirality, hair, domain review, bounded correction, Divine Eye fitting, screenshot feedback, assembly,
+attachment, material, detail inventory, rig payload, character track). In short:
+
+- Validate references first (`grimoire/intake/validation_rubric.md`, `check_reference_admission.py`).
+- `divine_eye.py` is deterministic-first; the VLM (`vlm_gate.py`) is a gated last layer, never
+  consulted on a hard-gate failure.
+- A non-planar form must hold from ≥2 angles (`diagnose_render_multi_angle.py`).
+- Measure INSIDE the silhouette every visual pass (`interior_difference.py`). Silhouette IoU reads
+  ~11% of figure cells: a model with its face deleted scored the same 0.8803 as the finished face.
+- Every `-l`/`-r` pair is a MIRROR, not a rotation — hard at spec time (`validate_chirality`). A pair
+  wrong the same way on both sides still passes, and needs `medial_lateral_bias` vs a reference.
+- Hair subjects: `scalp_exposure.py` is HARD and runs on geometry before any render; `hair_gate.py`
+  is soft and subordinate to it. A coverage shortfall never authorises widening the masses.
+- Flat colour regions with hard boundaries (blaze/bib/socks, livery stripe, painted marking) are an
+  identity feature, so their boundaries are gated on geometry: `vertex_region_gate.py`. Never a
+  texture — this pipeline emits code; the shape predicates live in `_shared/vertex_paint.py`.
+- A curve claim ("curled into a hook, not a straight cone") needs `swept_arc_gate.py`: silhouette IoU
+  passes a straight cone occupying roughly the right cells.
+- Character builds validate the rig payload (`stage5_rig/validate_rig_payload.py`) before binding a
+  `THREE.Skeleton`; it proves payload integrity only, never pose stress or likeness.
+- A rig that must MOVE runs the animation gates too (`grimoire/readiness/animation_contract.md`;
+  the checklist steps and gate come from the installed plugin-character -- `stage5_rig/` remains in
+  this repo as the emitter's library, not the checklist authority). A clip that exists is not a
+  clip that plays: only G1
+  (`maxSampledBindingDelta <= 2^-23`) separates the two, and a gate whose input is missing reports
+  `unevaluated`, never a pass. Bind at IDENTITY in attached mode and take the display offset from
+  the mesh bounds alone; loop is decided by `poseReturn`, never by travel.
+- A domain plugin's review gate also runs against its versioned scene fixture.
+- Local state enforces 3 corrections per pass and 6 total by default; reaching either limit is a
+  hard stop. `correction_loop.py` may stop earlier on repeated defects, oscillation, or plateau.
+- `continue` requires a render + comparison sheet + AI-vision score ≥ threshold, every critical
+  feature ≥ its own threshold (`grimoire/feedback/render_capture.md`).
+- Every model ships explodable AND clickable — a structure gate, not pixels
+  (`check_part_coverage.py`, `grimoire/build/geometry_patterns.md`).
+- Action-ready, attachment, material/lighting, detail inventory, and character-track requirements:
+  `grimoire/readiness/action_rigging.md`, `grimoire/readiness/joint_attachment.md`,
+  `grimoire/feedback/shading_realism.md`, `grimoire/intake/quality_contract.md`,
+  `grimoire/intake/validation_rubric.md`.
+
+## Self-Correction
+
+After every pass, decide exactly one: `continue | refine-spec | refine-code | request-input | stop`.
+`refine-spec` fixes a wrong/missing/shallow spec (re-validate, don't patch code around it);
+`refine-code` fixes geometry/material/lighting that doesn't match a sound spec. Before making the
+decision, MUST read the root-cause guide + fidelity scale in `grimoire/review/self_correction.md`,
+record the decision, and re-run the local state gate.
+
+**Small features need a different instrument.** Divine Eye's SSIM/tonal/edge signals run on a 64×64
+luma grid, so a detail a few pixels wide is absent before any comparison happens. When fidelity
+depends on individual tears, spars, fangs or eyes, use the four-tier microscope:
+`grimoire/review/divine_eye_microscope.md`. Two empirically established rules from it: measure
+fidelity on a component's **visible footprint** (full frame minus a component-hidden frame), never
+on an isolation render; and never colour-gate a **concave** feature, where a dark ratio captures
+cavity shading rather than material.
+
+## Transparency and Process Debugging
+
+Report what changed each pass with evidence (exact values/coordinates), name what still doesn't
+match, and never claim "done" when only "improved". A passing gate is not proof of 3D realism.
+Full rule + examples: `grimoire/review/self_correction.md`.
+
+## Left and right
+
+A left/right pair is a **reflection**, never a rotation: negate the lateral axis and nothing else,
+`(x, y, z) → (-x, y, z)`. With `forward: +Z`, Y up and a right-handed frame, the character's own
+left is **+X**. The convention lives as code in `forge/_shared/chirality.py`
+(`CHARACTER_LEFT_SIGN`), with two different gates for the two defects that shipped from getting it
+wrong: `validate_chirality` catches a rotation-mistaken-for-reflection at spec time, and
+`medial_lateral_bias` vs a reference catches a pair that is wrong the same way on both sides.
+Reflecting also inverts triangle winding — flip it back on the mirrored side or `flatShading`
+lights the limb as though lit from behind. Full write-up with the measured defects:
+`grimoire/scripts.md` ("Left and right").
+
+## Hair
+
+Hair has its own subsystem because it has failure modes no other gate can see. Full contract,
+measurements and non-goals: `docs/HAIR_PIPELINE.md`. The hard rules:
+
+- Roots bind to the scalp as `(u, v)`, never absolute positions (hard validation error).
+- `standProud` is enforced by the generator, not advisory.
+- `scalp_exposure.py` is a HARD gate on geometry before any render; a coverage shortfall never on
+  its own authorises widening the masses.
+- Default representation tier is `shell`, not locks; strand impression comes from faceting and
+  material (`hair.human.code-only`), since this skill emits no textures.
+- `plane-card` is rejected for hair (needs an alpha texture this skill cannot emit).
+- Hair is rigidly parented, never smooth-skinned (the geodesic field runs through the skull).
+
+## Domain plugins
+
+A domain plugin makes a run exact where this pipeline would otherwise infer. It contributes its own
+checklist steps and gates, and publishes a `spec-augmentation.json` that this pipeline pulls at
+`spec-authoring`. With no plugin serving the item, nothing here changes: author the skeleton and
+infer the shape from the reference, as for any other object.
+
+- The steps a plugin contributes appear in the checklist with their own ids and resolved paths. Read
+  what each step names -- a plugin ships its own contract, and it governs its own domain.
+- A plugin may **raise** this pipeline's quality floors and can never lower one; the merge clamps.
+- A plugin that does not serve an item publishes no augmentation. That is not an error and not a
+  blocked run: it is the generic path, and the reconstruction proceeds by inference.
+- This pipeline names no domain. If a rule is domain-specific, it lives in that domain's plugin.
+
+## Forge Runtime Contracts
+
+Subdivision runtime tests compile generated TypeScript against the showcase checkout. Set
+`IMG2THREEJS_SHOWCASE_ROOT` to that checkout; without it, local runtime-only tests skip with an
+actionable message while static contracts still run. CI should set `IMG2THREEJS_REQUIRE_SHOWCASE=1`
+to turn a missing showcase checkout into a test failure.
+
+```bash
+IMG2THREEJS_SHOWCASE_ROOT=/path/to/img2threejs-showcase python3 forge/tests/test_subdivision.py
+IMG2THREEJS_SHOWCASE_ROOT=/path/to/img2threejs-showcase python3 -m unittest discover -s forge/tests
+IMG2THREEJS_SHOWCASE_ROOT=/path/to/img2threejs-showcase python3 forge/tests/test_showcase_tsc_smoke.py
+```
+
+## Implementation Rules (brief)
+
+TypeScript + plain Three.js unless the project uses a wrapper. `Group` factory
+`createObjectNameModel(spec, options)`, reconstruction data kept separate from renderer objects,
+deterministic seeds for all procedural noise. Prefer primitives / `Shape` extrude / curve+tube /
+instancing / displacement / generated canvas textures before any external art. Full geometry &
+material recipes + hard-won failure patterns: `grimoire/build/geometry_patterns.md`.
+
+### Optional Python ↔ Three.js render bridge
+
+When Python is requested for character rendering, use it as a deterministic job/evidence layer
+around the browser Three.js runtime: camera-batch manifests, source/output hashes, readiness and
+settle checks, screenshot persistence, masks, diagnostics, and comparison packaging. The target
+Three.js browser route remains the rendering authority. Do not silently replace the procedural
+TypeScript factory with Blender/VRM/GLB output. Full routing, manifest fields, and failure rules:
+`grimoire/build/python_threejs_render_bridge.md`.
+
+### Standard character pipeline (merged 1.5 beta + alpha)
+
+Use `grimoire/readiness/standard_character_pipeline.md` for character work. Beta owns the
+strict sculpt/build/review gates; alpha owns deterministic camera manifests, browser screenshot
+evidence and UniRig-shaped rig validation. CharacterGen, Tripo, VRM and other neural/asset
+systems are opt-in adapters with source, checkpoint, license, coordinate conversion and output
+hashes. They never silently replace the procedural TypeScript factory. Image-to-mesh systems emit a
+static mesh with no skeleton, so their output is never animation-ready however good it looks.
+Executable entry points: `forge/stage4_review/render_bridge.py` and
+`scripts/capture_threejs_playwright.py` (`init → browser capture → validate → diagnose`; capture
+must operate on the real showcase/browser route and leave readable PNGs in the workspace).
+
+## Output
+
+- **Analysis-only**: suitability verdict + scores, object extraction, macro→micro hierarchy,
+  geometry strategy, material/lighting recipe, animation/destruction feasibility, plan + risks.
+- **Implementation**: the above briefly, then edit code; verify with typecheck/build + a screenshot.
+- **Not feasible**: name the blocker, ask for more views / cleaner image / accepted stylization /
+  a narrower target. "This cannot reach the requested fidelity from this image" is a valid result.
