@@ -1,3 +1,8 @@
+Your example: {FOLDER}. Complete every turn using the source-model editing workflow below. Inputs are input/source.glb, input/instructions.json, ref/turnNN.png and ref/camera.json. Infer each operation from text and target image; start from your previous saved output, preserve untouched parts, and write output/turnNN.glb. Remove is direct physical deletion with verification; add/replace/retexture require the full img2threejs construction and browser review loop. Retexture executes as replacement with its semantic label retained.
+
+Use the img2threejs checkout at /gs/fs/tga-koike-shanda4/yurh/img2threejs_edit_web, Three.js and the original browser capture tools. Do not use Blender, an offline rasterizer, external assets or generative geometry/image models. Keep files inside the example; do not overwrite input/ref or modify the skill. Read the original named supporting documents when required. Preserve the supplied evaluation camera separately from freely adjustable review cameras. Use actual tool timestamps; do not invent usage or gate evidence. Complete the chain under the bounded failure policy below. Final response: per-turn done/partial/skipped with reason, then output GLB paths.
+
+==================== Web editing SKILL.md (verbatim) ====================
 ---
 name: img2threejs
 description: Turn an object or character reference image into a quality-gated, animation-ready procedural Three.js model built in code. Use for image-to-3D reconstruction, detail-accurate object rebuilds, stylized/likeness-maximized human characters, sculpt specs, and staged code generation.
