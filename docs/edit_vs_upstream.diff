@@ -1,5 +1,5 @@
 --- upstream-v2.0.0/SKILL.md
-+++ shared-edit/SKILL.md
++++ editing/SKILL.md
 @@ -7,7 +7,7 @@
  
  # img2threejs — Image to procedural Three.js
@@ -9,7 +9,7 @@
  gated by a staged sculpting pipeline and an AI-vision self-correction loop. This is
  reconstruction-by-code, **not** photogrammetry, mesh extraction, or downloaded art packs. That
  promise governs how the model is *built* — it says nothing about which file formats it can
-@@ -22,6 +22,54 @@
+@@ -22,6 +22,101 @@
  This file is the always-loaded router: it holds the order of operations and every hard rule as one
  line. The full contract behind each rule lives in the `grimoire/` or `docs/` file that rule names —
  read the named file at the moment you reach that stage, not before.
@@ -35,9 +35,19 @@
 +- Add/replace: apply the COMPLETE original assessment/spec/factory/locked-pass/
 +  gate/review/correction workflow below to the new part. Install it in the retained
 +  source and inspect both part geometry and assembly. Preserve unrelated children.
-+- Retexture: use the same replacement construction and iterative review route;
-+  preserve intended shape/pose while matching the new appearance. Record
-+  semantic_op=retexture, execution_op=replace; do not change the dataset label.
++- Retexture: directly edit the named part's material, texture, or shader parameters
++  to match the instruction and target appearance. Preserve its geometry, topology,
++  UV coordinates, node names, transforms, placement, and attachment relationships.
++  If materials/textures are shared, isolate the target's material assignment or
++  texture edits so unrelated parts remain unchanged. Record semantic_op=retexture,
++  execution_op=material_edit. Do not rebuild or replace the part for a material-only
++  instruction; no new-part factory or geometry-construction passes are required.
++  Retain the applicable material/render review and bounded correction loop: render,
++  compare with target RGB, revise the material, and record evidence and gate results.
++  Use the same semantic/six-pass and diagnostic-view mechanisms where applicable;
++  verify unchanged geometry and untouched regions, and return to the evaluation
++  camera for final review. Mark construction-only checks not applicable with a
++  reason, not passed; missing target diagnostic channels remain unavailable.
 +
 +Keep one construction state/spec per edited part/turn. The source/current GLB is
 +an unchanged-region baseline, not the target for the requested change. Collect
@@ -50,10 +60,47 @@
 +When an evaluation camera is supplied, preserve it separately and return to it
 +before accepting a constructed turn. Do not substitute a fitted camera for final
 +scoring. Run the same gates and bounded correction budgets in either backend.
-+Record any missing required evidence as partial. In unattended chains a hard stop
-+ends the current construction attempt: save the best valid candidate or explicitly
-+retain the prior state and continue; if no valid state exists mark dependent turns
-+skipped. Do not reset budgets. Interactive tasks retain request-input behavior.
++### Bounded editing and best-candidate delivery
++
++For unattended editing chains, every turn must attempt the requested actual edit.
++Do not satisfy a turn by copying the previous GLB, changing only serialization or
++metadata, or making an unrelated cosmetic change. For a remove whose target is
++already absent, report that limitation honestly; do not delete a different part.
++
++Preserve the finite correction budget: at most 3 corrections per applicable pass
++and 6 total per turn (material-only edits also use the 6-total bound). Never reset
++or evade counters. Save each runnable edited candidate before further corrections.
++Judge the best candidate by instruction fulfillment and target-view agreement,
++then preservation of untouched content; record its path, hashes and selection reason.
++
++A deliverable candidate is a complete GLB that reloads, has finite geometry and
++valid scene references, preserves unrelated source content, and contains the
++requested kind of edit. This is export validity, NOT a claim that quality gates pass.
++At budget exhaustion or a quality hard stop, export the best such EDITED candidate
++as output/turnNN.glb, mark it partial if any required gate failed or is unavailable,
++and use that saved candidate as the next turn's input. Never discard an available
++edited candidate merely to restore the unedited state because a quality gate failed.
++
++A pre-construction reference/material/spec gate rejection or a broken gate utility
++must not prevent all editing. Record the failure, attempt environment repair when
++applicable, and produce a bounded provisional procedural/material edit if no
++runnable edited candidate exists yet. This provisional attempt consumes the same
++turn budget; it is not a new pass, budget reset, or gate-approved factory build.
++If a strict generator refuses, retain its BLOCKED artifact; a directly authored
++provisional candidate must be labeled as such, not as a successful locked pass.
++Do not forge state, force a failed review to continue, or claim skipped gates passed.
++
++This is an explicit unattended EDITING override of reconstruction-only hard-stop,
++request-input and fail-closed delivery rules below: a hard stop still ends quality
++acceptance and further correction, but does not forbid delivery of a valid edited
++candidate or the bounded initial provisional attempt described above. Interactive
++reconstruction retains the original stop/request-input behavior.
++
++Only when no edited candidate can be exported and reloaded after the bounded
++attempts, record execution failure (failed, not done). Keep the prior state solely
++as a separately identified recovery checkpoint, not a successful output for that
++turn. Record dependent turns as blocked when no valid rollout input exists; never
++silently reset to GT or count copied prior states as completed edits.
 +
 +Export the complete edited scene as output/turnNN.glb, in source coordinates.
 +Preserve source input/ref files and keep intermediate artifacts inside the example.
@@ -64,7 +111,7 @@
  
  ## Canonical shared checkout
  
-@@ -59,7 +107,7 @@
+@@ -59,7 +154,7 @@
  ## Mandatory Local State Gate
  
  Conversation context is disposable; `.img2threejs/state.json` is the local checklist authority.
@@ -73,7 +120,7 @@
  
  ```bash
  python3 forge/state.py init --state .img2threejs/state.json --reference <img> --profile <generic|character|installed-domain> --spec object-sculpt-spec.json
-@@ -252,7 +300,13 @@
+@@ -252,7 +347,13 @@
  
  ## GLB-mediated v2 render-fidelity track (1.5 alpha)
  
